@@ -22,7 +22,7 @@ class NLinkArm(object):
         self.joint_angles = np.zeros_like(link_lengths)
 
         self.position_base = np.zeros(2)
-        self.max_length = sum(self.link_lengths)
+        # self.max_length = sum(self.link_lengths)
 
         if scales is None:
             self.scales = np.ones_like(self.joint_angles)
@@ -93,7 +93,7 @@ class NLinkArm(object):
             link_positions[ii + 1][1] = link_positions[ii][1] + link * np.sin(
                 accumulated_angle)
 
-        link_positions /= self.max_length
+        # link_positions /= self.max_length
 
         return link_positions, accumulated_angle
 
@@ -111,22 +111,39 @@ class NLinkArm(object):
 
         accumulated_angles = new_angles.cumsum(-1)
 
-        tcp_position = torch.zeros(len(next_state), 2).to(state.device)
+        tcp_position = torch.tensor(self.position_base).unsqueeze(0).repeat(state.shape[0], 1).to(state.device)
 
         # accumulated_angles = torch.zeros(len(next_state)).to(state.device)
 
-        for ii, (angle, link) in enumerate(
-                zip(self.joint_angles, self.link_lengths)):
-            tcp_position[:, 0] = tcp_position[:,
-                                 0] + link * accumulated_angles[:, ii].cos()
-            tcp_position[:, 1] = tcp_position[:,
-                                 1] + link * accumulated_angles[:, ii].sin()
+        for ii, link in enumerate(self.link_lengths):
+            tcp_position[:, 0] = tcp_position[:, 0] + \
+                                 link * accumulated_angles[:, ii].cos()
+            tcp_position[:, 1] = tcp_position[:, 1] + \
+                                 link * accumulated_angles[:, ii].sin()
 
+        # position tcp
         next_state[:, -4:-2] = tcp_position
+        # orientation tcp
         next_state[:, -2] = accumulated_angles[:, -1].sin()
         next_state[:, -1] = accumulated_angles[:, -1].cos()
 
         return next_state
+
+    def points_of_interest(self, state):
+
+        angles = state[:, :-4] * np.pi
+
+        accumulated_angles = angles.cumsum(-1)
+
+        points_of_interest = torch.empty(state.shape[0], len(self.joint_angles) + 1, 2)
+
+        points_of_interest[:,0] = torch.tensor(self.position_base).unsqueeze(0).expand(state.shape[0],2).to(state.device)
+
+        for ii, link in enumerate(self.link_lengths):
+            points_of_interest[:, ii + 1, 0] = points_of_interest[:, ii, 0] + link * accumulated_angles[:, ii].cos()
+            points_of_interest[:, ii + 1, 1] = points_of_interest[:, ii, 1] + link * accumulated_angles[:, ii].sin()
+
+        return points_of_interest
 
     def plot(self, ax=None, color="C0", alpha=1., plot_goal=False):  # pragma: no cover
         # plt.cla()
@@ -153,8 +170,8 @@ class NLinkArm(object):
         if plot_goal:
             ax.scatter(self.goal[0], self.goal[1], color="k", marker="x")
 
-        ax.set_xlim([-self.max_length, self.max_length])
-        ax.set_ylim([-self.max_length, self.max_length])
+        # ax.set_xlim([-self.max_length, self.max_length])
+        # ax.set_ylim([-self.max_length, self.max_length])
         # plt.draw()
         # plt.pause(0.0001)
 
@@ -171,14 +188,13 @@ if __name__ == "__main__":
 
     fig, ax = plt.subplots()
 
-    steps = 5
+    steps = 50
 
     state = arm.reset(np.zeros_like(config["link_lengths"]))
 
     states, actions, next_states = [], [], []
 
     for step in range(steps):
-        # action = np.array([1, .1])
         action = arm.action_space.sample()
 
         next_state = arm.step(action)
@@ -187,21 +203,31 @@ if __name__ == "__main__":
         actions.append(action)
         next_states.append(next_state)
 
+        next_state_batch = arm.transition(torch.tensor([state]), torch.tensor([action]))
+
+        assert torch.all((torch.tensor([next_state]) - next_state_batch).abs() < 1e-5)
+
         state = next_state
 
         # if step % 10 == 0:
         # arm.plot(ax=ax, alpha=step / steps)
         arm.plot(ax=ax, plot_goal=True)
 
+        # points_of_interest = arm.points_of_interest(torch.tensor([state]))[0]
+
+        # plt.scatter(points_of_interest[:,0], points_of_interest[:,1], color="C2", marker="x")
+
     states = torch.tensor(states)
     actions = torch.tensor(actions)
     next_states = torch.tensor(next_states)
 
+    # check points of interest
+    points_of_interest = arm.points_of_interest(torch.tensor(states))
+    points_of_interest = points_of_interest.reshape(-1,2)
+    plt.scatter(points_of_interest[:,0], points_of_interest[:,1], color="C2", marker="x")
 
     next_states_pred = arm.transition(states, actions)
 
-    print(next_states)
-    print(next_states_pred)
-    print(torch.all((next_states - next_states_pred).abs() < 1e-5))
+    assert torch.all((next_states - next_states_pred).abs() < 1e-5)
 
     plt.show()
