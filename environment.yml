@@ -1,0 +1,18 @@
+name: equarri-cutting-optimization
+channels:
+  - pytorch
+#  - conda-forge
+#  - defaults
+dependencies:
+  - numpy
+  - tensorboard
+  - tqdm
+  - pytorch
+  - cudatoolkit=11.3
+  - pip
+  - matplotlib
+  - pip:
+      - gym
+
+# conda env create -f environment.yml
+# conda env update --prefix ./env --file environment.yml  --prune

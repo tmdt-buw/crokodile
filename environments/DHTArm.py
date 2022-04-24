@@ -10,18 +10,14 @@ import numpy as np
 import torch
 from gym import spaces
 from matplotlib.path import Path
+from ..dht import DHT_Model
 
 
 class NLinkArm(object):
-    def __init__(self, link_lengths, scales=np.pi):
+    def __init__(self, dht_params):
 
-        self.state_space = spaces.Box(-1., 1., (len(link_lengths),))
-        self.action_space = spaces.Box(-1., 1., (len(link_lengths),))
-
-        self.link_lengths = np.array(link_lengths)
-        self.joint_angles = np.zeros_like(link_lengths)
-
-        self.position_base = np.zeros(2)
+        self.observation_space = spaces.Box(-1., 1., (len(dht_params),))
+        self.action_space = spaces.Box(-1., 1., (len(dht_params),))
 
         if scales is None:
             self.scales = np.ones_like(self.joint_angles)
@@ -33,31 +29,36 @@ class NLinkArm(object):
 
         self.goal = np.zeros(2)
 
-        self.dht_params = [[None, 0., link_length, 0.] for link_length in link_lengths]
-        self.joint_limits = [[-np.pi, np.pi] for _ in range(len(self.joint_angles))]
-
         self.reset()
 
-    def reset(self, desired_state=None):
-        if desired_state is None:
-            self.joint_angles = np.random.uniform(-np.pi, np.pi, len(self.joint_angles))
+    def reset(self, angles=None, goal=None):
+        if angles is None:
+            self.joint_angles = np.random.uniform(-1, 1,
+                                                  len(self.joint_angles))
         else:
-            assert len(desired_state) == len(self.joint_angles)
-            self.joint_angles = np.array(desired_state, dtype=float) * np.pi
+            assert len(angles) == len(self.joint_angles)
+            self.joint_angles = np.array(angles, dtype=float) * np.pi
+
+        if goal is None:
+            self.goal = np.ones(2)
+            while np.linalg.norm(self.goal) > 1:
+                self.goal = np.random.random(2)
+        else:
+            self.goal = goal
 
         return self.get_state()
 
     def get_state(self):
-        # link_positions, tcp_orientation = self.get_link_positions()
-        # tcp_position = link_positions[-1]
-        #
-        state_joint_angles = self.joint_angles / np.pi
-        #
-        # state = np.concatenate([state_joint_angles, tcp_position,
-        #                         np.sin(tcp_orientation),
-        #                         np.cos(tcp_orientation)])
+        link_positions, tcp_orientation = self.get_link_positions()
+        tcp_position = link_positions[-1]
 
-        return state_joint_angles
+        state_joint_angles = self.joint_angles / np.pi
+
+        state = np.concatenate([state_joint_angles, tcp_position,
+                                np.sin(tcp_orientation),
+                                np.cos(tcp_orientation)])
+
+        return state
 
     def step(self, action):
 
@@ -86,6 +87,8 @@ class NLinkArm(object):
                 accumulated_angle)
             link_positions[ii + 1][1] = link_positions[ii][1] + link * np.sin(
                 accumulated_angle)
+
+        # link_positions /= self.max_length
 
         return link_positions, accumulated_angle
 
@@ -129,8 +132,7 @@ class NLinkArm(object):
 
         points_of_interest = torch.empty(state.shape[0], len(self.joint_angles) + 1, 2, device=state.device)
 
-        points_of_interest[:, 0] = torch.tensor(self.position_base, device=state.device).unsqueeze(0).expand(
-            state.shape[0], 2)
+        points_of_interest[:,0] = torch.tensor(self.position_base, device=state.device).unsqueeze(0).expand(state.shape[0],2)
 
         for ii, link in enumerate(self.link_lengths):
             points_of_interest[:, ii + 1, 0] = points_of_interest[:, ii, 0] + link * accumulated_angles[:, ii].cos()
@@ -157,7 +159,7 @@ class NLinkArm(object):
                                   alpha=alpha)
         ax.add_patch(patch)
 
-        ax.scatter(link_positions[:, 0], link_positions[:, 1], color=color,
+        plt.scatter(link_positions[:, 0], link_positions[:, 1], color=color,
                     alpha=alpha)
 
         if plot_goal:
@@ -170,12 +172,12 @@ class NLinkArm(object):
 
 
 if __name__ == "__main__":
-    configA = {"link_lengths": [1, 1, 1],
+    configA = {"link_lengths": [1, 1],
                "scales": .3 * np.pi}
     configB = {"link_lengths": [.5, 1, .5, .6, .7],
                "scales": np.pi}
 
-    config = configA
+    config = configB
 
     arm = NLinkArm(**config)
 
@@ -184,16 +186,6 @@ if __name__ == "__main__":
     steps = 50
 
     state = arm.reset(np.zeros_like(config["link_lengths"]))
-
-    arm.reset([0,0,.5])
-
-    arm.plot()
-
-    plt.xlim(-3, 3)
-    plt.ylim(-3, 3)
-
-    plt.show()
-    exit()
 
     states, actions, next_states = [], [], []
 
@@ -226,8 +218,8 @@ if __name__ == "__main__":
 
     # check points of interest
     points_of_interest = arm.points_of_interest(torch.tensor(states))
-    points_of_interest = points_of_interest.reshape(-1, 2)
-    plt.scatter(points_of_interest[:, 0], points_of_interest[:, 1], color="C2", marker="x")
+    points_of_interest = points_of_interest.reshape(-1,2)
+    plt.scatter(points_of_interest[:,0], points_of_interest[:,1], color="C2", marker="x")
 
     next_states_pred = arm.transition(states, actions)
 
