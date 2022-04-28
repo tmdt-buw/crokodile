@@ -7,9 +7,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 from gym import spaces
+from torch.distributions import MultivariateNormal
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
-from torch.distributions import MultivariateNormal
 
 sys.path.insert(0, str(Path('.').absolute().parent))
 
@@ -22,19 +22,19 @@ from environments.NLinkArm import NLinkArm
 
 
 class DynamicsModel(nn.Module):
-    def __init__(self, state_space, skill_space, transition):
+    def __init__(self, state_space, action_space, transition):
         super(DynamicsModel, self).__init__()
 
         self.state_space = state_space
-        self.skill_space = skill_space
+        self.action_space = action_space
 
         self.state_space_low = torch.tensor(self.state_space.low).to(device)
         self.state_space_high = torch.tensor(self.state_space.high).to(device)
 
         self.transition = transition
 
-    def forward(self, state, skill):
-        next_state = self.transition(state, skill)
+    def forward(self, state, action):
+        next_state = self.transition(state, action)
         # next_state = next_state.clip(self.state_space.low, self.state_space.high)
 
         next_state = torch.max(torch.min(next_state, self.state_space_high),
@@ -99,20 +99,30 @@ class SpaceTranslatorMultivariate(nn.Module):
 
             out_bound_compensation = torch.log(
                 1. - out.pow(2) + np.finfo(float).eps).sum(dim=1,
-                                                              keepdim=True)
+                                                           keepdim=True)
 
             log_prob.sub_(out_bound_compensation)
 
         return out, log_prob
 
+
 def sample_space(space, num_samples=1):
-    samples = torch.tensor([space.sample() for _ in range(num_samples)]).to(
-        device)
+    samples = torch.tensor([space.sample() for _ in range(num_samples)], device=device)
 
     return samples
 
 
+def loss_points_of_interest(points_of_interestA, points_of_interestB):
+    tcpA = points_of_interestA[:, -1, :]
+    tcpB = points_of_interestB[:, -1, :]
+
+    return torch.nn.functional.mse_loss(tcpA, tcpB)
+
+
 if __name__ == "__main__":
+    experiment_name = datetime.now().strftime("%Y%m%d-%H%M%S")
+    experiment_base_dir = "results/"
+
     epochs = 50_000
     samples = 128
     lr = 1e-3
@@ -122,110 +132,93 @@ if __name__ == "__main__":
     configB = {"link_lengths": [.3, .3, .3, .3],
                "scales": .3 * np.pi}
 
-    skill_embedding_size = 10
+    action_embedding_size = 10
 
-    armA = NLinkArm(**configA)
-    armB = NLinkArm(**configB)
+    environmentA = NLinkArm(**configA)
+    environmentB = NLinkArm(**configB)
 
-    state_spaceA = armA.observation_space
-    skill_spaceA = armA.action_space
+    # poi_similarities = torch.zeros(armA.points_of_interest(torch.tensor([armA.observation_space.sample()])).shape[1])
 
-    state_spaceB = armB.observation_space
-    skill_spaceB = armB.action_space
+    state_spaceA = environmentA.observation_space
+    action_spaceA = environmentA.action_space
 
-    transitionA = armA.transition
-    transitionB = armB.transition
+    state_spaceB = environmentB.observation_space
+    action_spaceB = environmentB.action_space
 
-    dynamics_model_A = DynamicsModel(state_spaceA, skill_spaceA,
+    transitionA = environmentA.transition
+    transitionB = environmentB.transition
+
+    dynamics_model_A = DynamicsModel(state_spaceA, action_spaceA,
                                      transitionA).to(device)
-    dynamics_model_B = DynamicsModel(state_spaceB, skill_spaceB,
+    dynamics_model_B = DynamicsModel(state_spaceB, action_spaceB,
                                      transitionB).to(device)
 
-    skill_embedding = spaces.Box(-1, 1, (skill_embedding_size,))
+    action_embedding = spaces.Box(-1, 1, (action_embedding_size,))
 
-    experiment_name = datetime.now().strftime("%Y%m%d-%H%M%S")
-    experiment_base_dir = "results/"
+    translator_action_A0 = SpaceTranslator(dynamics_model_A.action_space, action_embedding).to(device)
+    translator_action_0A = SpaceTranslator(action_embedding, dynamics_model_A.action_space).to(device)
+    translator_action_B0 = SpaceTranslator(dynamics_model_B.action_space, action_embedding).to(device)
+    translator_action_0B = SpaceTranslator(action_embedding, dynamics_model_B.action_space).to(device)
 
-    translator_skill_0A = SpaceTranslator(skill_embedding,
-                                          dynamics_model_A.skill_space).to(
-        device)
-    translator_skill_A0 = SpaceTranslator(dynamics_model_A.skill_space,
-                                          skill_embedding).to(device)
-    translator_skill_0B = SpaceTranslator(skill_embedding,
-                                          dynamics_model_B.skill_space).to(
-        device)
-    translator_skill_B0 = SpaceTranslator(dynamics_model_B.skill_space,
-                                          skill_embedding).to(device)
-
-    translator_state_AB = SpaceTranslator(dynamics_model_A.state_space,
-                                          dynamics_model_B.state_space).to(
-        device)
-    translator_state_BA = SpaceTranslator(dynamics_model_B.state_space,
-                                          dynamics_model_A.state_space).to(
-        device)
+    translator_state_AB = SpaceTranslator(dynamics_model_A.state_space, dynamics_model_B.state_space).to(device)
+    translator_state_BA = SpaceTranslator(dynamics_model_B.state_space, dynamics_model_A.state_space).to(device)
 
     writer = SummaryWriter(os.path.join(experiment_base_dir, experiment_name))
 
-    optimizer_skill_0A = torch.optim.Adam(translator_skill_0A.parameters(),
-                                          lr=lr)
-    optimizer_skill_A0 = torch.optim.Adam(translator_skill_A0.parameters(),
-                                          lr=lr)
-    optimizer_skill_0B = torch.optim.Adam(translator_skill_0B.parameters(),
-                                          lr=lr)
-    optimizer_skill_B0 = torch.optim.Adam(translator_skill_B0.parameters(),
-                                          lr=lr)
-    optimizer_state_AB = torch.optim.Adam(translator_state_AB.parameters(),
-                                          lr=lr)
-    optimizer_state_BA = torch.optim.Adam(translator_state_BA.parameters(),
-                                          lr=lr)
+    optimizer_action_0A = torch.optim.Adam(translator_action_0A.parameters(), lr=lr)
+    optimizer_action_A0 = torch.optim.Adam(translator_action_A0.parameters(), lr=lr)
+    optimizer_action_0B = torch.optim.Adam(translator_action_0B.parameters(), lr=lr)
+    optimizer_action_B0 = torch.optim.Adam(translator_action_B0.parameters(), lr=lr)
+    optimizer_state_AB = torch.optim.Adam(translator_state_AB.parameters(), lr=lr)
+    optimizer_state_BA = torch.optim.Adam(translator_state_BA.parameters(), lr=lr)
 
     loss_function = torch.nn.MSELoss()
 
     for epoch in tqdm(range(epochs)):
-        mode_skill_sampling = np.random.choice(["skill0", "skillA", "skillB"])
+        mode_action_sampling = np.random.choice(["action0", "actionA", "actionB"])
         mode_state_sampling = np.random.choice(["stateA", "stateB"])
 
-        translator_skill_0A.zero_grad()
-        translator_skill_A0.zero_grad()
-        translator_skill_0B.zero_grad()
-        translator_skill_B0.zero_grad()
+        translator_action_0A.zero_grad()
+        translator_action_A0.zero_grad()
+        translator_action_0B.zero_grad()
+        translator_action_B0.zero_grad()
         translator_state_AB.zero_grad()
         translator_state_BA.zero_grad()
 
-        if mode_skill_sampling == "skill0":
-            skills0 = sample_space(skill_embedding, samples)
+        if mode_action_sampling == "action0":
+            actions0 = sample_space(action_embedding, samples)
 
-            skillsA = translator_skill_0A(skills0)
-            skillsB = translator_skill_0B(skills0)
+            actionsA = translator_action_0A(actions0)
+            actionsB = translator_action_0B(actions0)
 
             # cycle consistency
-            loss = loss_function(translator_skill_A0(skillsA), skills0)
+            loss = loss_function(translator_action_A0(actionsA), actions0)
             loss.backward(retain_graph=True)
             writer.add_scalar('Loss Skills 0A0', loss.item(), epoch)
 
-            loss = loss_function(translator_skill_B0(skillsB), skills0)
+            loss = loss_function(translator_action_B0(actionsB), actions0)
             loss.backward(retain_graph=True)
             writer.add_scalar('Loss Skills 0B0', loss.item(), epoch)
 
-        elif mode_skill_sampling == "skillA":
-            skillsA = sample_space(dynamics_model_A.skill_space, samples)
+        elif mode_action_sampling == "actionA":
+            actionsA = sample_space(dynamics_model_A.action_space, samples)
 
-            skills0 = translator_skill_A0(skillsA)
-            skillsB = translator_skill_0B(skills0)
+            actions0 = translator_action_A0(actionsA)
+            actionsB = translator_action_0B(actions0)
 
             # cycle consistency
-            loss = loss_function(translator_skill_0A(skills0), skillsA)
+            loss = loss_function(translator_action_0A(actions0), actionsA)
             loss.backward(retain_graph=True)
             writer.add_scalar('Loss Skills A0A', loss.item(), epoch)
 
-        elif mode_skill_sampling == "skillB":
-            skillsB = sample_space(dynamics_model_B.skill_space, samples)
+        elif mode_action_sampling == "actionB":
+            actionsB = sample_space(dynamics_model_B.action_space, samples)
 
-            skills0 = translator_skill_B0(skillsB)
-            skillsA = translator_skill_0A(skills0)
+            actions0 = translator_action_B0(actionsB)
+            actionsA = translator_action_0A(actions0)
 
             # cycle consistency
-            loss = loss_function(translator_skill_0B(skills0), skillsB)
+            loss = loss_function(translator_action_0B(actions0), actionsB)
             loss.backward(retain_graph=True)
             writer.add_scalar('Loss Skills B0B', loss.item(), epoch)
         else:
@@ -254,8 +247,8 @@ if __name__ == "__main__":
             raise NotImplementedError()
 
         # cycle consistency next state
-        next_statesA = dynamics_model_A(statesA, skillsA)
-        next_statesB = dynamics_model_B(statesB, skillsB)
+        next_statesA = dynamics_model_A(statesA, actionsA)
+        next_statesB = dynamics_model_B(statesB, actionsB)
 
         loss = loss_function(translator_state_BA(next_statesB), next_statesA)
         loss.backward(retain_graph=True)
@@ -266,24 +259,25 @@ if __name__ == "__main__":
         writer.add_scalar('Loss Next States BAB', loss.item(), epoch)
 
         # state correspondance
-        loss = 10. * loss_function(statesA[:, -4:-2], statesB[:, -4:-2]) #+ \
-               # .0 * loss_function(statesA[:, -2:], statesB[:, -2:])
+        points_of_interest_statesA = environmentA.points_of_interest(statesA)
+        points_of_interest_statesB = environmentB.points_of_interest(statesB)
+        loss = loss_points_of_interest(points_of_interest_statesA, points_of_interest_statesB)
         loss.backward(retain_graph=True)
         writer.add_scalar('Loss States Correspondance', loss.item(), epoch)
 
-        loss = 10. * loss_function(next_statesA[:, -4:-2],
-                                  next_statesB[:, -4:-2]) #+ \
-               # .0 * loss_function(next_statesA[:, -2:], next_statesB[:, -2:])
+        points_of_interest_next_statesA = environmentA.points_of_interest(next_statesA)
+        points_of_interest_next_statesB = environmentB.points_of_interest(next_statesB)
+        loss = loss_points_of_interest(points_of_interest_next_statesA, points_of_interest_next_statesB)
         loss.backward(retain_graph=True)
         writer.add_scalar('Loss Next States Correspondance', loss.item(),
                           epoch)
 
         writer.flush()
 
-        optimizer_skill_0A.step()
-        optimizer_skill_A0.step()
-        optimizer_skill_0B.step()
-        optimizer_skill_B0.step()
+        optimizer_action_0A.step()
+        optimizer_action_A0.step()
+        optimizer_action_0B.step()
+        optimizer_action_B0.step()
 
         optimizer_state_AB.step()
         optimizer_state_BA.step()
@@ -293,19 +287,19 @@ if __name__ == "__main__":
                 "configA": configA,
                 "configB": configB,
 
-                "skill_embedding_size": skill_embedding_size,
+                "action_embedding_size": action_embedding_size,
 
-                "translator_skill_0A": translator_skill_0A.state_dict(),
-                "translator_skill_A0": translator_skill_A0.state_dict(),
-                "translator_skill_0B": translator_skill_0B.state_dict(),
-                "translator_skill_B0": translator_skill_B0.state_dict(),
+                "translator_action_0A": translator_action_0A.state_dict(),
+                "translator_action_A0": translator_action_A0.state_dict(),
+                "translator_action_0B": translator_action_0B.state_dict(),
+                "translator_action_B0": translator_action_B0.state_dict(),
                 "translator_state_AB": translator_state_AB.state_dict(),
                 "translator_state_BA": translator_state_BA.state_dict(),
 
-                "optimizer_skill_0A": optimizer_skill_0A.state_dict(),
-                "optimizer_skill_A0": optimizer_skill_A0.state_dict(),
-                "optimizer_skill_0B": optimizer_skill_0B.state_dict(),
-                "optimizer_skill_B0": optimizer_skill_B0.state_dict(),
+                "optimizer_action_0A": optimizer_action_0A.state_dict(),
+                "optimizer_action_A0": optimizer_action_A0.state_dict(),
+                "optimizer_action_0B": optimizer_action_0B.state_dict(),
+                "optimizer_action_B0": optimizer_action_B0.state_dict(),
 
                 "optimizer_state_AB": optimizer_state_AB.state_dict(),
                 "optimizer_state_BA": optimizer_state_BA.state_dict(),
@@ -318,19 +312,19 @@ if __name__ == "__main__":
         "configA": configA,
         "configB": configB,
 
-        "skill_embedding_size": skill_embedding_size,
+        "action_embedding_size": action_embedding_size,
 
-        "translator_skill_0A": translator_skill_0A.state_dict(),
-        "translator_skill_A0": translator_skill_A0.state_dict(),
-        "translator_skill_0B": translator_skill_0B.state_dict(),
-        "translator_skill_B0": translator_skill_B0.state_dict(),
+        "translator_action_0A": translator_action_0A.state_dict(),
+        "translator_action_A0": translator_action_A0.state_dict(),
+        "translator_action_0B": translator_action_0B.state_dict(),
+        "translator_action_B0": translator_action_B0.state_dict(),
         "translator_state_AB": translator_state_AB.state_dict(),
         "translator_state_BA": translator_state_BA.state_dict(),
 
-        "optimizer_skill_0A": optimizer_skill_0A.state_dict(),
-        "optimizer_skill_A0": optimizer_skill_A0.state_dict(),
-        "optimizer_skill_0B": optimizer_skill_0B.state_dict(),
-        "optimizer_skill_B0": optimizer_skill_B0.state_dict(),
+        "optimizer_action_0A": optimizer_action_0A.state_dict(),
+        "optimizer_action_A0": optimizer_action_A0.state_dict(),
+        "optimizer_action_0B": optimizer_action_0B.state_dict(),
+        "optimizer_action_B0": optimizer_action_B0.state_dict(),
 
         "optimizer_state_AB": optimizer_state_AB.state_dict(),
         "optimizer_state_BA": optimizer_state_BA.state_dict(),
