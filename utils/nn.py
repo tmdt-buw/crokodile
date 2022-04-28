@@ -204,6 +204,23 @@ class Sawtooth(torch.nn.Module):
         return f'min_x={self.min_x.data.tolist()}, max_x={self.max_x.data.tolist()}, min_y={self.min_y.data.tolist()}, max_y={self.max_y.data.tolist()}'
 
 
+class Pos2Pose(nn.Module):
+
+    def forward(self, x):
+        positions = x.reshape(x.shape[0], -1, 3, 1)
+
+        orientations = torch.eye(3, device=x.device).expand(positions.shape[0], positions.shape[1], 3, 3)
+
+        poses = torch.cat((orientations, positions), dim=-1)
+
+        pad = torch.tensor([0,0,0,1], device=x.device)
+        pad = pad.expand(positions.shape[0], positions.shape[1], 1, 4)
+
+        out = torch.cat((poses, pad), dim=-2)
+
+        return out
+
+
 class PoseLoss(torch.nn.Module):
     def __init__(self, weight_orientation=1.):
         super(PoseLoss, self).__init__()
