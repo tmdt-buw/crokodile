@@ -27,11 +27,15 @@ if __name__ == '__main__':
     robot_name = "ur5"
     n_samples_train = 10_000
     n_samples_test = 1_000
+
+    import pybullet as p
+    p.connect(p.GUI)
+
     robot = get_robot({
         "name": robot_name,
-        "scale": .1,
-        "sim_time": .1
-    })
+    }, bullet_client=p)
+
+    exit()
 
     states_train = generate_samples(robot, n_samples_train)
     states_test = generate_samples(robot, n_samples_test)

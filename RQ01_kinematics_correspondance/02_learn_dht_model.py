@@ -8,10 +8,11 @@ from pathlib import Path
 
 import numpy as np
 import torch
-import wandb
 from torch.multiprocessing import Process, set_start_method
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
+
+import wandb
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
@@ -25,6 +26,10 @@ except RuntimeError:
 
 wandb_mode = "online"
 # wandb_mode = "disabled"
+
+# model_type = "vanilla"
+model_type = "PINN"
+
 
 def create_network(in_dim, out_dim, network_width, network_depth, dropout):
     network_structure = [('linear', network_width), ('relu', None),
@@ -112,6 +117,7 @@ def train_dht_model(config=None, project=None):
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=.1, patience=50, min_lr=1e-6)
 
         best_loss = np.inf
+        steps_since_improvement = 0
         patience = config.get("patience", np.inf)
 
         for epoch in tqdm(range(config.epochs)):
@@ -143,7 +149,7 @@ def train_dht_model(config=None, project=None):
                 }, step=epoch)
 
                 if loss.item() < best_loss:
-                    best_loss = error_tcp_p.item()
+                    best_loss = loss.item()
                     torch.save({
                         'model_state_dict': model.state_dict(),
                         'optimizer_state_dict': optimizer.state_dict(),
@@ -173,16 +179,13 @@ if __name__ == '__main__':
 
     wandb.login()
 
-    model_type = "vanilla"
-    # model_type = "PINN"
-
     assert model_type in ["vanilla", "PINN"]
 
     sweep = True
 
     if sweep:
         sweep_config = {
-            "name": "dht_model_sweep",
+            "name": f"dht_model_sweep_{model_type}",
             "method": "bayes",
             'metric': {
                 'name': 'loss',
