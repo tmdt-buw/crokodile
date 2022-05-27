@@ -26,7 +26,8 @@ class Robot:
         OPEN = 1
 
     def __init__(self, urdf_file, joints_arm, joints_hand, links=None, dht_params=None, offset=(0, 0, 0), sim_time=0.,
-                 scale=1., parameter_distributions=None, bullet_client=None):
+                 scale=1.,
+                 parameter_distributions=None, bullet_client=None):
 
         if bullet_client is None:
             bullet_client = bc.BulletClient()
@@ -64,7 +65,9 @@ class Robot:
 
         self.model_id = bullet_client.loadURDF(urdf_file, self.offset,
                                                useFixedBase=True,
-                                               flags=p.URDF_USE_SELF_COLLISION | p.URDF_MAINTAIN_LINK_ORDER)
+                                               flags=p.URDF_MAINTAIN_LINK_ORDER)
+                                               # flags=p.URDF_USE_SELF_COLLISION | p.URDF_MAINTAIN_LINK_ORDER)
+        self.urdf_file = urdf_file
 
         self.joint_name2id = {}
 
@@ -95,8 +98,8 @@ class Robot:
 
         # define spaces
         self.action_space = spaces.Dict({
-            "arm": spaces.Box(-1., 1., shape=(len(self.joints),)),
-            "hand": spaces.Box(-1., 1., shape=(1,))
+            "arm": spaces.Box(-1., 1., shape=(len(self.joints),), dtype=np.float64),
+            "hand": spaces.Box(-1., 1., shape=(1,), dtype=np.float64)
         })
 
         self.state_space = spaces.Dict({
@@ -108,6 +111,7 @@ class Robot:
 
         if dht_params is not None:
             self.dht_params = dht_params
+
 
     def __del__(self):
         self.bullet_client.removeBody(self.model_id)
@@ -123,6 +127,28 @@ class Robot:
     def unnormalize_joints(self, joint_positions):
         return np.array([np.interp(joint_position, [-1, 1], joint.limits) for joint, joint_position in
                          zip(self.joints, joint_positions)])
+
+    def calculate_inverse_kinematics(self, tcp_position, tcp_orientation, initial_pose=None, iters=1000):
+
+        return None
+        # conf = np.zeros_like(self.ik_model.getConfig())
+        #
+        # if initial_pose:
+        #     assert len(initial_pose) == len(self.ik_dof_joint_ids)
+        #     for ik_dof, pose in zip(self.ik_dof_joint_ids, initial_pose):
+        #         conf[ik_dof] = pose
+        #
+        # self.ik_model.setConfig(conf)
+        #
+        # obj = ik.objective(self.ik_model.link(self.ik_model.numLinks() - 1), t=list(tcp_position),
+        #                    R=so3.from_quaternion(tcp_orientation))
+        #
+        # res = ik.solve_global(obj, iters=iters, activeDofs=self.ik_dof_joint_ids)
+        #
+        # if not res:
+        #     return None
+        #
+        # return np.array([self.ik_model.getDOFPosition(jj) for jj in self.ik_dof_joint_ids])
 
     def step(self, action: np.ndarray):
         """
@@ -227,8 +253,7 @@ class Robot:
 
         # reset until state is valid
         while True:
-            for (_, joint), desired_state_joint in zip(self.joints_arm.items(),
-                                                       desired_state["arm"]["joint_positions"]):
+            for (_, joint), desired_state_joint in zip(self.joints_arm.items(), desired_state["arm"]["joint_positions"]):
                 joint_position = np.interp(desired_state_joint, [-1, 1], joint.limits)
 
                 self.bullet_client.resetJointState(self.model_id, joint.id, joint_position)
@@ -253,14 +278,16 @@ class Robot:
                                                      [joint.id for joint in self.joints],
                                                      p.VELOCITY_CONTROL,
                                                      targetVelocities=np.zeros(len(self.joints)),
+                                                     # forces=torques
                                                      )
 
         return state
 
     def get_tcp_pose(self):
-        tcp_position, tcp_orientation, _, _, _, _, _, _ = self.bullet_client.getLinkState(self.model_id,
-                                                                                          self.joint_name2id["tcp"],
-                                                                                          computeLinkVelocity=True)
+        tcp_position, tcp_orientation, _, _, _, _, tcp_velocity, _ = self.bullet_client.getLinkState(self.model_id,
+                                                                                                     self.joint_name2id[
+                                                                                                         "tcp"],
+                                                                                                     computeLinkVelocity=True)
 
         tcp_position = np.array(tcp_position) - self.offset
         tcp_orientation = np.array(tcp_orientation)
