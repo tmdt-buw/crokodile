@@ -87,7 +87,8 @@ class LitDomainMapper(pl.LightningModule):
             out_dim=data_X["states_train"].shape[1],
             network_width=dynamics_model_network_width,
             network_depth=dynamics_model_network_depth,
-            dropout=dynamics_model_dropout
+            dropout=dynamics_model_dropout,
+            out_activation='tanh'
         )
 
         state_mapper_XY = self.create_network(
@@ -95,7 +96,8 @@ class LitDomainMapper(pl.LightningModule):
             out_dim=data_Y["states_train"].shape[1],
             network_width=state_mapper_network_width,
             network_depth=state_mapper_network_depth,
-            dropout=state_mapper_dropout
+            dropout=state_mapper_dropout,
+            out_activation='tanh'
         )
 
         action_mapper_XY = self.create_network(
@@ -103,7 +105,8 @@ class LitDomainMapper(pl.LightningModule):
             out_dim=data_Y["actions_train"].shape[1],
             network_width=action_mapper_network_width,
             network_depth=action_mapper_network_depth,
-            dropout=action_mapper_dropout
+            dropout=action_mapper_dropout,
+            out_activation='tanh'
         )
 
         return dht_model_X, dynamics_model_X, state_mapper_XY, action_mapper_XY
@@ -128,10 +131,13 @@ class LitDomainMapper(pl.LightningModule):
 
         return loss_fn_dynamics_model, loss_fn_kinematics_AB, loss_fn_kinematics_BA
 
-    def create_network(self, in_dim, out_dim, network_width, network_depth, dropout):
+    def create_network(self, in_dim, out_dim, network_width, network_depth, dropout, out_activation=None):
         network_structure = [('linear', network_width), ('relu', None),
                              ('dropout', dropout)] * network_depth
         network_structure.append(('linear', out_dim))
+
+        if out_activation:
+            network_structure.append((out_activation, None))
 
         return NeuralNetwork(in_dim, network_structure)
 
@@ -314,15 +320,14 @@ class LitDomainMapper(pl.LightningModule):
                 optimizer_action_mapper_AB, optimizer_action_mapper_BA], []
 
 
-def run_training():
-    config = wandb.config
+def run_training(config, wandb_config={}):
 
     if "warm_start" in config:
 
         with tempfile.TemporaryDirectory() as dir:
-            artifact = wandb.use_artifact(config["warm_start"])
+            api = wandb.Api()
+            artifact = api.artifact(config["warm_start"])
             artifact_dir = artifact.download(dir)
-            wandb.use_artifact("agent:best").download(dir)
 
             domain_mapper = LitDomainMapper.load_from_checkpoint(os.path.join(artifact_dir, "model.ckpt"))
     else:
@@ -346,10 +351,10 @@ def run_training():
     # trainer = pl.Trainer(strategy=DDPSpawnStrategy(), accelerator="gpu", logger=wandb_logger)
     callbacks = [
         ModelCheckpoint(monitor="validation_loss", mode="min"),
-        EarlyStopping(monitor="validation_loss", mode="min", patience=100)
+        EarlyStopping(monitor="validation_loss", mode="min", patience=1000)
     ]
 
-    wandb_logger = WandbLogger(log_model="all")
+    wandb_logger = WandbLogger(**wandb_config, log_model="all")
 
     trainer = pl.Trainer(strategy=DDPStrategy(), accelerator="gpu",
                          # gpus=-1,
@@ -447,17 +452,20 @@ if __name__ == '__main__':
             "data_file_A": data_file_A,
             "data_file_B": data_file_B,
             "network_width": 32,
-            "network_depth": 4,
-            # "weight_matrix_exponent": 10,
-            "dropout": 0.,
+            "network_depth": 8,
+            "weight_matrix_exponent": 10,
+            "dropout": 0.1,
             "lr": 0.01,
-            "batch_size": 32,
+            "batch_size": 64,
             "num_workers": 10,
-            "max_epochs": 5000,
-            "warm_start": "robot2robot/PITL/model-3llceeay:best"
+            "max_epochs": 10_000,
+            # "warm_start": "robot2robot/PITL/model-6o48z2nx:best"
         }
 
-        wandb.init(config=config, **wandb_config)
+        # pl.utilities.rank_zero.rank_zero_only(wandb.init)(config=config, **wandb_config)
+        # wandb.init(config=config, **wandb_config)
 
+        torch.cuda.empty_cache()
         devices = -1 if torch.cuda.is_available() else None
-        run_training()
+        # devices = list(range(1,8))
+        run_training(config, wandb_config)

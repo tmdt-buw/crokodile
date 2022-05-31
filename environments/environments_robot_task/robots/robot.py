@@ -26,7 +26,7 @@ class Robot:
         OPEN = 1
 
     def __init__(self, urdf_file, joints_arm, joints_hand, links=None, dht_params=None, offset=(0, 0, 0), sim_time=0.,
-                 scale=1.,
+                 scale=1., deactivate_self_collision=False,
                  parameter_distributions=None, bullet_client=None):
 
         if bullet_client is None:
@@ -63,10 +63,12 @@ class Robot:
 
         self.random = np.random.RandomState(int.from_bytes(os.urandom(4), byteorder='little'))
 
-        self.model_id = bullet_client.loadURDF(urdf_file, self.offset,
-                                               useFixedBase=True,
-                                               flags=p.URDF_MAINTAIN_LINK_ORDER)
-                                               # flags=p.URDF_USE_SELF_COLLISION | p.URDF_MAINTAIN_LINK_ORDER)
+        flags = p.URDF_MAINTAIN_LINK_ORDER
+
+        if not deactivate_self_collision:
+            flags |= p.URDF_USE_SELF_COLLISION
+
+        self.model_id = bullet_client.loadURDF(urdf_file, self.offset, useFixedBase=True, flags=flags)
         self.urdf_file = urdf_file
 
         self.joint_name2id = {}
@@ -111,7 +113,6 @@ class Robot:
 
         if dht_params is not None:
             self.dht_params = dht_params
-
 
     def __del__(self):
         self.bullet_client.removeBody(self.model_id)
@@ -253,7 +254,8 @@ class Robot:
 
         # reset until state is valid
         while True:
-            for (_, joint), desired_state_joint in zip(self.joints_arm.items(), desired_state["arm"]["joint_positions"]):
+            for (_, joint), desired_state_joint in zip(self.joints_arm.items(),
+                                                       desired_state["arm"]["joint_positions"]):
                 joint_position = np.interp(desired_state_joint, [-1, 1], joint.limits)
 
                 self.bullet_client.resetJointState(self.model_id, joint.id, joint_position)

@@ -2,6 +2,18 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 
+import numpy as np
+from matplotlib.colors import ListedColormap
+N = 256
+vals = np.stack([
+np.linspace(160/256, 21/256, N),
+np.linspace(195/256, 50/256, N),
+np.linspace(217/256, 89/256, N),
+np.ones(N)
+]).T
+
+cmap = ListedColormap(vals)
+
 df_keywords = pd.read_csv("keywords.csv", sep=";", index_col=0)
 df_keywords = df_keywords.astype(bool)
 df_keywords = df_keywords.iloc[:,:-1]
@@ -18,7 +30,7 @@ for iA, columnA in enumerate(df_keywords.columns):
 
 df_combined.columns = df_combined.columns.str.replace("t_", "")
 df_combined.index = df_combined.index.str.replace("t_", "")
-sns.heatmap(df_combined.astype(float), annot=True, fmt=".0f", cbar=False, vmin=0, vmax=31)
+sns.heatmap(df_combined.astype(float), annot=True, fmt=".0f", cbar=False, vmin=0, vmax=31, cmap=cmap)
 plt.title("Title keywords | OR linkage")
 plt.tight_layout()
 plt.show()
@@ -35,7 +47,7 @@ for iA, columnA in enumerate(df_keywords.columns):
 
 df_combined.columns = df_combined.columns.str.replace("t_", "")
 df_combined.index = df_combined.index.str.replace("t_", "")
-sns.heatmap(df_combined.astype(float), annot=True, fmt=".0f", cbar=False, vmin=0, vmax=31)
+sns.heatmap(df_combined.astype(float), annot=True, fmt=".0f", cbar=False, vmin=0, vmax=31, cmap=cmap)
 plt.title("Title keywords | AND linkage")
 plt.tight_layout()
 plt.show()
@@ -52,7 +64,7 @@ for iA, columnA in enumerate(df_keywords.columns):
 
 df_combined.columns = df_combined.columns.str.replace("t_", "")
 df_combined.index = df_combined.index.str.replace("t_", "")
-sns.heatmap(df_combined.astype(float), annot=True, fmt=".0f", cbar=False, vmin=0, vmax=31)
+sns.heatmap(df_combined.astype(float), annot=True, fmt=".0f", cbar=False, vmin=0, vmax=31, cmap=cmap)
 plt.title("Title keywords | XOR linkage")
 plt.tight_layout()
 plt.show()
