@@ -4,6 +4,7 @@ Checks if dht model generates correct tcp pose
 
 import os
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -21,7 +22,7 @@ wandb_mode = "online"
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from karolos.environments.environments_robot_task.robots import get_robot
+from environments.environments_robot_task.robots import get_robot
 
 
 def clear_lines(line_ids, bullet_client=p):
@@ -44,7 +45,7 @@ def plot_pose(pose, length=.1, bullet_client=p):
     return line_ids
 
 
-def verify_calculated_poses(data_file, n, visualize=False):
+def verify_calculated_poses(data_file, n=100, visualize=False):
     print("Verify", data_file)
     if visualize:
         p.connect(p.GUI)
@@ -201,12 +202,6 @@ def visualize_gradient_descent_ik(run_path):
         "offset": (1, 1, 0)
     }, bullet_client=p)
 
-    # for ii, jj in combinations(range(p.getNumJoints(master_robot.model_id)), 2):
-    #     p.setCollisionFilterPair(master_robot.model_id, master_robot.model_id, ii, jj, 0)
-
-    # for ii, jj in combinations(range(p.getNumJoints(mimick_robot.model_id)), 2):
-    #     p.setCollisionFilterPair(mimick_robot.model_id, mimick_robot.model_id, ii, jj, 0)
-
     for angles_, target_ in zip(angles.transpose(0, 1), target):
         state_master = master_robot.state_space.sample()
         state_master["arm"]["joint_positions"] = target_
@@ -219,10 +214,96 @@ def visualize_gradient_descent_ik(run_path):
             mimick_robot.reset(state_mimick, force=True)
 
 
+def load_robot(data_file, bullet_client, **robot_kwargs):
+    data_path = os.path.join(data_folder, data_file)
+    data = torch.load(data_path)
+
+    robot_name = data_file.split("_")[0]
+
+    robot = get_robot({
+        "name": robot_name,
+        **data["robot_config"],
+        **robot_kwargs
+    }, bullet_client=bullet_client)
+
+    return robot
+
+
 if __name__ == '__main__':
-    visualize_gradient_descent_ik("bitter/dht_ik/runs/1b245dt9")
+
+    from utils.dht import get_dht_model
+    from utils.nn import Rescale, Sawtooth
+    from torch.nn import Sequential
+
+    data_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+    data_file = "panda_10000_1000.pt"
+
+    data_path = os.path.join(data_folder, data_file)
+    data = torch.load(data_path)
+
+    # p.connect(p.GUI)
+    p.connect(p.DIRECT)
+
+    robot_A = load_robot(data_file, p)
+    robot_B = load_robot(data_file, p, offset=(1, 0, 0), deactivate_self_collision=True)
+
+    dht_model = get_dht_model(data["dht_params"], data["joint_limits"])
+
+    state_correction = Sequential(
+        Rescale(-1, 1, data["joint_limits"][:, 0], data["joint_limits"][:, 1]),
+        Sawtooth(-np.pi, np.pi, -np.pi, np.pi),
+        Rescale(data["joint_limits"][:, 0], data["joint_limits"][:, 1], -1, 1),
+
+    )
+
+    for _ in range(10):
+        state_A = robot_A.reset()
+        state_B = robot_B.reset()
+
+        state_A_arm = torch.FloatTensor([state_A["arm"]["joint_positions"]])
+        state_B_arm = torch.FloatTensor([state_B["arm"]["joint_positions"]])
+        state_B_arm.requires_grad = True
+
+        poses_A = dht_model(state_A_arm).detach()
+
+        # weight_matrix_p = torch.eye(poses_A.shape[1])
+        # weight_matrix_o = torch.eye(poses_A.shape[1])
+
+        weight_matrix_p = torch.zeros(poses_A.shape[1], poses_A.shape[1])
+        weight_matrix_o = torch.zeros(poses_A.shape[1], poses_A.shape[1])
+
+        weight_matrix_p[-1,-1] = 1
+        weight_matrix_o[-1,-1] = 1
+
+        optimizer = torch.optim.AdamW([state_B_arm], lr=1e-2)
+        loss_fn_kcl = KinematicChainLoss(weight_matrix_p, weight_matrix_o)
+        loss_fn = torch.nn.MSELoss()
+
+        for i in range(1000):
+            optimizer.zero_grad()
+
+            poses_B = dht_model(state_B_arm)
+
+            # loss, _, _ = loss_fn_kcl(poses_A, poses_B)
+            loss = loss_fn(poses_A[:,-1,:], poses_B[:,-1,:])
+            # loss = loss_fn(poses_A, poses_B)
+            loss.backward()
+
+            optimizer.step()
+
+            state_B["arm"]["joint_positions"] = state_correction(state_B_arm)[0].cpu().detach().numpy()
+            robot_B.reset(state_B, force=True)
+
+            if loss.item() < 1e-4:
+                break
+
+        print(loss.item())
+
+        time.sleep(.1)
+        time.sleep(10)
 
     exit()
+    visualize_gradient_descent_ik("bitter/dht_ik/runs/1b245dt9")
 
     for data_file in ["data/panda_10000_1000.pt"]:  # , "data/ur5_10000_1000.pt"]:
         verify_calculated_poses(data_file, 10)
