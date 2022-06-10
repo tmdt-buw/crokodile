@@ -8,6 +8,7 @@ from tqdm import tqdm
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from environments.environments_robot_task.robots import get_robot
 
+from config import *
 
 def generate_samples(robot, n):
     states = []
@@ -40,8 +41,6 @@ def generate_samples(robot, n):
 
 
 if __name__ == '__main__':
-    data_folder = "../data"
-
     os.makedirs(data_folder, exist_ok=True)
 
     for robot_name in ["panda", "ur5"]:
