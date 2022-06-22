@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from torch.nn import MSELoss
 import pytorch_lightning as pl
 from pytorch_lightning.trainer.supporters import CombinedLoader
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
@@ -79,6 +80,7 @@ class LitDomainMapper(pl.LightningModule):
         Returns:
             Mapped state and action
     """
+
     def forward(self, state_A, action_A):
         return self.state_mapper_AB(state_A), self.action_mapper_AB(action_A)
 
@@ -93,6 +95,7 @@ class LitDomainMapper(pl.LightningModule):
         Returns:
             Pytorch models according to specified hyperparameters
     """
+
     def get_models(self, data_file_X, data_file_Y,
                    transition_model_network_width, transition_model_network_depth, transition_model_dropout,
                    state_mapper_network_width, state_mapper_network_depth, state_mapper_dropout,
@@ -141,6 +144,7 @@ class LitDomainMapper(pl.LightningModule):
         Returns:
             Loss functions
     """
+
     def get_loss_functions(self):
         data_path_A = os.path.join(data_folder, self.hparams.data_file_A)
         data_A = torch.load(data_path_A)
@@ -173,6 +177,7 @@ class LitDomainMapper(pl.LightningModule):
             dropout
             out_activation: What activation should be used on the network output
     """
+
     def create_network(self, in_dim, out_dim, network_width, network_depth, dropout, out_activation=None):
         network_structure = [('linear', network_width), ('relu', None),
                              ('dropout', dropout)] * network_depth
@@ -195,6 +200,7 @@ class LitDomainMapper(pl.LightningModule):
             weight_matrix_XY_p: Weight matrix for positions
             weight_matrix_XY_p: Weight matrix for orientations. All zeros except weight which corresponds to the end effectors.
     """
+
     @staticmethod
     def get_weight_matrices(link_positions_X, link_positions_Y, weight_matrix_exponent_p, norm=True):
         link_positions_X = torch.cat((torch.zeros(1, 3), link_positions_X))
@@ -219,7 +225,6 @@ class LitDomainMapper(pl.LightningModule):
             weight_matrix_XY_o /= weight_matrix_XY_o.sum()
 
         return weight_matrix_XY_p, weight_matrix_XY_p
-
 
     def get_train_dataloader(self, data_file):
         data_path = os.path.join(data_folder, data_file)
@@ -253,6 +258,7 @@ class LitDomainMapper(pl.LightningModule):
         Generate dataloader used for training.
         Refer to pytorch lightning docs.
     """
+
     def train_dataloader(self):
         dataloader_train_A = self.get_train_dataloader(self.hparams.data_file_A)
         dataloader_train_B = self.get_train_dataloader(self.hparams.data_file_B)
@@ -262,6 +268,7 @@ class LitDomainMapper(pl.LightningModule):
         Generate dataloader used for validation.
         Refer to pytorch lightning docs.
     """
+
     def val_dataloader(self):
         dataloader_validation_A = self.get_validation_dataloader(self.hparams.data_file_A)
         dataloader_validation_B = self.get_validation_dataloader(self.hparams.data_file_B)
@@ -271,6 +278,7 @@ class LitDomainMapper(pl.LightningModule):
     """
         Determine loss of transition model on batch.
     """
+
     def loss_transition_model(self, batch, transition_model, loss_fn):
         states, actions, next_states = batch
         states_actions_X = torch.concat((states, actions), axis=-1)
@@ -281,6 +289,7 @@ class LitDomainMapper(pl.LightningModule):
     """
         Determine loss of state mapper on batch.
     """
+
     def loss_state_mapper(self, batch, state_mapper_XY, dht_model_X, dht_model_Y, loss_fn):
         states_X, _, _ = batch
 
@@ -304,6 +313,7 @@ class LitDomainMapper(pl.LightningModule):
     """
         Determine loss of action mapper on batch.
     """
+
     def loss_action_mapper(self, batch, action_mapper_XY, state_mapper_XY, dht_model_X, dht_model_Y, transition_model_Y,
                            loss_fn):
         states_X, actions_X, next_states_X = batch
@@ -330,6 +340,7 @@ class LitDomainMapper(pl.LightningModule):
         Perform training step. Customized behavior to enable accumulation of all losses into one variable.
         Refer to pytorch lightning docs.
     """
+
     def training_step(self, batch, batch_idx):
 
         cumulated_loss = 0.
@@ -351,11 +362,15 @@ class LitDomainMapper(pl.LightningModule):
         Perform validation step. Customized behavior to enable accumulation of all losses into one variable.
         Refer to pytorch lightning docs.
     """
+
     def validation_step(self, batch, batch_idx):
 
         cumulated_loss = 0.
 
         for optimizer_idx in range(len(self.optimizers())):
+            if not optimizer_idx in self.relevant_optimizers:
+                continue
+
             loss = self.step(batch, batch_idx, optimizer_idx, "validation_")
             cumulated_loss += loss.item()
 
@@ -373,6 +388,7 @@ class LitDomainMapper(pl.LightningModule):
         Returns:
             loss
     """
+
     def step(self, batch, batch_idx, optimizer_idx, log_prefix=""):
 
         if optimizer_idx == 0:
@@ -412,6 +428,7 @@ class LitDomainMapper(pl.LightningModule):
         Helper function to generate all optimizers.
         Refer to pytorch lightning docs.
     """
+
     def configure_optimizers(self):
         optimizer_transition_model_A = torch.optim.Adam(self.transition_model_A.parameters(),
                                                         lr=self.hparams.transition_model_lr)
@@ -426,9 +443,20 @@ class LitDomainMapper(pl.LightningModule):
         optimizer_action_mapper_BA = torch.optim.Adam(self.action_mapper_BA.parameters(),
                                                       lr=self.hparams.action_mapper_lr)
 
+        scheduler_state_mapper_AB = {"scheduler": ReduceLROnPlateau(optimizer_state_mapper_AB),
+                                     "monitor": "validation_loss_state_mapper_AB",
+                                     "name": "scheduler_optimizer_state_mapper_AB"
+                                     }
+
+        scheduler_state_mapper_BA = {"scheduler": ReduceLROnPlateau(optimizer_state_mapper_BA),
+                                     "monitor": "validation_loss_state_mapper_BA",
+                                     "name": "scheduler_optimizer_state_mapper_BA"
+                                     }
+
         return [optimizer_transition_model_A, optimizer_transition_model_B,
                 optimizer_state_mapper_AB, optimizer_state_mapper_BA,
-                optimizer_action_mapper_AB, optimizer_action_mapper_BA], []
+                optimizer_action_mapper_AB, optimizer_action_mapper_BA], \
+               [scheduler_state_mapper_AB, scheduler_state_mapper_BA]
 
 
 if __name__ == '__main__':
