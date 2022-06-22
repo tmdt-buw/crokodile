@@ -358,6 +358,21 @@ class LitDomainMapper(pl.LightningModule):
 
         self.log("train_loss", cumulated_loss, on_step=False, on_epoch=True)
 
+    def training_epoch_end(self, outputs):
+        super(LitDomainMapper, self).training_epoch_end(outputs)
+        
+        for scheduler_idx, scheduler in enumerate(self.lr_schedulers()):
+
+            if scheduler_idx == 0:
+                metric_name = "validation_loss_state_mapper_AB"
+            elif scheduler_idx == 1:
+                metric_name = "validation_loss_state_mapper_BA"
+            else:
+                raise ValueError(f"Metric for scheduler_idx {scheduler_idx} unknown!")
+
+            metric = self.trainer.callback_metrics[metric_name]
+            scheduler.step(metric)
+
     """
         Perform validation step. Customized behavior to enable accumulation of all losses into one variable.
         Refer to pytorch lightning docs.
