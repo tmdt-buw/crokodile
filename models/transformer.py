@@ -3,65 +3,70 @@ import math
 import torch
 from torch import Tensor
 import torch.nn as nn
-from torch.nn import Transformer, TransformerEncoder, TransformerEncoderLayer, TransformerDecoder, TransformerDecoderLayer
+from torch.nn import Transformer
 
-# Seq2Seq Network
+
 class Seq2SeqTransformer(nn.Module):
-    def __init__(self,
-                 in_dim, out_dim, number_heads, number_hidden_layers, number_layers, max_seq_length, dropout=0.):
+    def __init__(self, src_len, tgt_len, d_model=64, nhead=8, num_encoder_layers=6,
+                 num_decoder_layers=6, dim_feedforward=2048, dropout=0.1):
         super(Seq2SeqTransformer, self).__init__()
 
-        self.encoder = Encoder(in_dim, out_dim, number_heads, number_hidden_layers, number_layers, dropout)
-        self.decoder = Decoder(in_dim, out_dim, number_heads, number_hidden_layers, number_layers, dropout)
+        self.tgt_len = tgt_len
+        max_len = max(src_len, tgt_len)
 
-        self.positional_encoding = PositionalEncoding(in_dim, max_seq_length, dropout)
+        self.encoder_src = nn.Conv1d(1, d_model, 1)
+        self.positional_encoding = PositionalEncoding(d_model, max_len, dropout)
 
+        self.encoder_tgt = nn.Conv1d(1, d_model, 1)
 
-    def forward(self,
-                src: Tensor,
-                trg: Tensor,
-                src_mask: Tensor,
-                tgt_mask: Tensor,
-                src_padding_mask: Tensor,
-                tgt_padding_mask: Tensor,
-                memory_key_padding_mask: Tensor):
-        src_emb = self.positional_encoding(src)
-        tgt_emb = self.positional_encoding(trg)
-        outs = self.transformer(src_emb, tgt_emb, src_mask, tgt_mask, None,
-                                src_padding_mask, tgt_padding_mask, memory_key_padding_mask)
-        return outs
+        self.transformer = Transformer(d_model, nhead, num_encoder_layers, num_decoder_layers, dim_feedforward,
+                                       dropout, batch_first=True)
 
-    def encode(self, src: Tensor, src_mask: Tensor):
-        return self.transformer.encoder(self.positional_encoding(self.src_tok_emb(src)), src_mask)
+        self.decoder_out = nn.Conv1d(d_model, 1, 1)
 
-    def decode(self, tgt: Tensor, memory: Tensor, tgt_mask: Tensor):
-        return self.transformer.decoder(self.positional_encoding(self.tgt_tok_emb(tgt)), memory, tgt_mask)
+        # self.src_padding_mask = torch.zeros(src_len)
+        # self.src_padding_mask[src_len:] = 1.
+        # self.tgt_padding_mask = torch.zeros(tgt_len)
+        # self.tgt_padding_mask[tgt_len:] = 1.
+        # self.memory_padding_mask = self.src_padding_mask
 
-class Encoder(nn.Module):
-    def __init__(self, in_dim, out_dim, number_heads, number_hidden_layers, number_layers, dropout=0.):
-        super(Encoder, self).__init__()
-        self.number_layers = number_layers
-        encoder_layers = TransformerEncoderLayer(in_dim, number_heads, number_hidden_layers, dropout)
-        self.transformer_encoder = TransformerEncoder(encoder_layers, number_layers)
-        self.linear = nn.Linear(in_dim, out_dim)
+        tgt_mask = (torch.tril(torch.ones((tgt_len, tgt_len))) == 0)
+        self.register_buffer('tgt_mask', tgt_mask)
 
-    def forward(self, src, mask=None, src_key_padding_mask=None):
-        x = self.transformer_encoder(src, mask, src_key_padding_mask)
+    def get_dummy_tgt(self, src):
+        tgt = torch.ones((src.shape[0], self.tgt_len), device=src.device) * torch.nan
 
-        return x
+        return tgt
 
+    def forward(self, src: Tensor, tgt: Tensor = None):
+        if tgt is None:
+            tgt = self.get_dummy_tgt(src)
 
-class Decoder(nn.Module):
-    def __init__(self, in_dim, out_dim, number_heads, number_hidden_layers, number_layers, dropout=0.):
-        super(Decoder, self).__init__()
-        self.number_layers = number_layers
-        decoder_layers = TransformerDecoderLayer(in_dim, number_heads, number_hidden_layers, dropout)
-        self.decoder = TransformerDecoder(decoder_layers, number_layers)
+        src = src.unsqueeze(1)
+        tgt = tgt.unsqueeze(1)
 
-    def forward(self, trg, e_outputs):
-        x = self.decoder(x, e_outputs)
+        src_enc = self.encoder_src(src)  # NCL -> NEL
+        src_enc = src_enc.swapdims(1, 2)  # NEL -> NLE
+        src_emb = self.positional_encoding(src_enc)
 
-        return x
+        tgt_enc = self.encoder_tgt(tgt)  # tgt_enc: NCL -> NEL
+        torch.nan_to_num_(tgt_enc)
+        tgt_enc = tgt_enc.swapdims(1, 2)  # NEL -> NLE
+        tgt_emb = self.positional_encoding(tgt_enc)
+
+        out_emb = self.transformer(src_emb, tgt_emb,
+                                   tgt_mask=self.tgt_mask
+                                   # src_key_padding_mask=self.src_padding_mask,
+                                   # tgt_key_padding_mask=self.tgt_padding_mask,
+                                   # memory_key_padding_mask=self.memory_padding_mask
+                                   )
+        out_emb = out_emb.swapdims(1, 2)  # NLE -> NEL
+
+        out = self.decoder_out(out_emb)  # NEL -> NCL
+
+        out = out.squeeze()
+
+        return out
 
 
 class PositionalEncoding(nn.Module):
@@ -85,15 +90,15 @@ class PositionalEncoding(nn.Module):
 
 if __name__ == '__main__':
 
-    Seq2SeqTransformer()
+    model = Seq2SeqTransformer(6, 7)
 
+    src = torch.rand(10, 1, 6)  # NCL
+    tgt = torch.rand(10, 1, 7)
 
+    out = model(src, tgt)
 
-
-
-
-
-
+    print(src.shape)
+    print(out.shape)
 
     exit()
 
