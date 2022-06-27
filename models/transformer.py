@@ -8,7 +8,7 @@ from torch.nn import Transformer
 
 class Seq2SeqTransformer(nn.Module):
     def __init__(self, src_len, tgt_len, d_model=64, nhead=8, num_encoder_layers=6,
-                 num_decoder_layers=6, dim_feedforward=2048, dropout=0.1):
+                 num_decoder_layers=6, dim_feedforward=2048, dropout=0.1, **kwargs):
         super(Seq2SeqTransformer, self).__init__()
 
         self.tgt_len = tgt_len
@@ -64,7 +64,7 @@ class Seq2SeqTransformer(nn.Module):
 
         out = self.decoder_out(out_emb)  # NEL -> NCL
 
-        out = out.squeeze()
+        out = out.squeeze(1) # NL
 
         return out
 
