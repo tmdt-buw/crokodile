@@ -17,6 +17,9 @@ def get_robot(robot_config, bullet_client=None):
     elif robot_name == 'iiwa':
         from .robot_iiwa import RobotIIWA
         robot = RobotIIWA(bullet_client, **robot_config)
+    elif robot_name == 'simple':
+        from .robot_simple import RobotSimple
+        robot = RobotSimple(**robot_config)
     else:
         raise ValueError(f"Unknown robot: {robot_name}")
 

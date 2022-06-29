@@ -3,20 +3,24 @@ import time
 import wandb
 import os
 import torch
-from models.state_mapper import LitStateMapper
+from models.domain_mapper import LitDomainMapper
 import pybullet as p
 from environments.environments_robot_task.robots import get_robot
 import tempfile
 
 # reference can be retrieved in artifacts panel
 # "VERSION" can be a version (ex: "v2") or an alias ("latest or "best")
-# checkpoint_reference = "robot2robot/PITL/model-3llceeay:best"
-domain_mapper_artifact = "robot2robot/PITL/model-hamj4vvw:best"
+checkpoint_reference = "robot2robot/PITL/model-3llceeay:best"
+checkpoint_reference = "robot2robot/PITL/model-1w2koi3e:best"
+
+# download checkpoint locally (if not already cached)
 
 with tempfile.TemporaryDirectory() as dir:
     api = wandb.Api()
-    artifact_dir = api.artifact(domain_mapper_artifact).download(dir)
-    domain_mapper = LitStateMapper.load_from_checkpoint(os.path.join(artifact_dir, "model.ckpt"))
+    artifact = api.artifact(checkpoint_reference)
+    artifact_dir = artifact.download(dir)
+    # load checkpoint
+    domain_mapper = LitDomainMapper.load_from_checkpoint(os.path.join(artifact_dir, "model.ckpt"))
 
 data_file_A = domain_mapper.hparams.data_file_A
 data_file_B = domain_mapper.hparams.data_file_B
@@ -42,13 +46,8 @@ p.connect(p.GUI)
 # p.connect(p.DIRECT)
 
 robot_A = load_robot(data_file_A, p)
-robot_B = load_robot(data_file_B, p)
+robot_B = load_robot(data_file_B, p, offset=(1,0,0))
 
-for link_A in range(p.getNumJoints(robot_A.model_id)):
-    p.setCollisionFilterGroupMask(robot_A.model_id, link_A, 0, 0)
-
-for link_B in range(p.getNumJoints(robot_B.model_id)):
-    p.setCollisionFilterGroupMask(robot_B.model_id, link_B, 0, 0)
 
 while True:
     print("State")
@@ -63,8 +62,9 @@ while True:
     robot_B.reset(state_B, force=True)
 
     for _ in range(3):
-        break
         try:
+
+
             print("Action")
 
             action_A = robot_A.action_space.sample()

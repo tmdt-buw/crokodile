@@ -1,9 +1,11 @@
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
+import pylab as p
 
 sys.path.append(str(Path(__file__).resolve().parent))
 
@@ -62,7 +64,7 @@ class RobotUR5(Robot):
             {"d": .0823, "a": 0., "alpha": 0},
             {"theta": np.pi / 2, "d": .15, "a": 0., "alpha": np.pi},
 
-            #{"theta": 0., "d": -.105, "a": 0., "alpha": np.pi},
+            # {"theta": 0., "d": -.105, "a": 0., "alpha": np.pi},
         ]
 
         super(RobotUR5, self).__init__(bullet_client=bullet_client,
@@ -78,3 +80,28 @@ class RobotUR5(Robot):
 
         # todo introduce friction
 
+
+if __name__ == '__main__':
+    import pybullet as p
+
+    p.connect(p.GUI)
+    robot = RobotUR5(p)
+
+    joint_positions = robot.calculate_inverse_kinematics([0, .5, .5], [1, 0, 0, 0])
+    state = robot.normalize_joints(joint_positions)
+
+    robot.reset({"arm": {"joint_positions": state}}, force=True)
+
+    object = p.createMultiBody(
+        baseVisualShapeIndex=p.createVisualShape(p.GEOM_BOX, halfExtents=[.5] * 3),
+        baseCollisionShapeIndex=p.createCollisionShape(p.GEOM_BOX, halfExtents=[.5] * 3),
+        baseMass=0.,
+    )
+
+    p.resetBasePositionAndOrientation(object, [0, 0, 0], [0, 0, 0, 1])
+
+    while True:
+        p.stepSimulation()
+        # robot.step(robot.action_space.sample())
+        #
+        # time.sleep(.3)

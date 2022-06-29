@@ -7,64 +7,85 @@ from torch.nn import Transformer
 
 
 class Seq2SeqTransformer(nn.Module):
-    def __init__(self, src_len, tgt_len, d_model=64, nhead=8, num_encoder_layers=6,
+    def __init__(self, max_len=10, num_domains=2, d_model=64, nhead=8, num_encoder_layers=6,
                  num_decoder_layers=6, dim_feedforward=2048, dropout=0.1, **kwargs):
         super(Seq2SeqTransformer, self).__init__()
 
-        self.tgt_len = tgt_len
-        max_len = max(src_len, tgt_len)
+        self.max_len = max_len
 
         self.encoder_src = nn.Conv1d(1, d_model, 1)
         self.positional_encoding = PositionalEncoding(d_model, max_len, dropout)
 
         self.encoder_tgt = nn.Conv1d(1, d_model, 1)
 
+        self.domain_embedding = nn.Embedding(num_domains, d_model)
+
+        self.encoder_sot = nn.Conv1d(3, d_model, 1)
+
         self.transformer = Transformer(d_model, nhead, num_encoder_layers, num_decoder_layers, dim_feedforward,
                                        dropout, batch_first=True)
 
         self.decoder_out = nn.Conv1d(d_model, 1, 1)
 
-        # self.src_padding_mask = torch.zeros(src_len)
-        # self.src_padding_mask[src_len:] = 1.
-        # self.tgt_padding_mask = torch.zeros(tgt_len)
-        # self.tgt_padding_mask[tgt_len:] = 1.
-        # self.memory_padding_mask = self.src_padding_mask
-
-        tgt_mask = (torch.tril(torch.ones((tgt_len, tgt_len))) == 0)
+        tgt_mask = (torch.tril(torch.ones((max_len, max_len))) == 0)
         self.register_buffer('tgt_mask', tgt_mask)
 
-    def get_dummy_tgt(self, src):
-        tgt = torch.ones((src.shape[0], self.tgt_len), device=src.device) * torch.nan
-
-        return tgt
-
-    def forward(self, src: Tensor, tgt: Tensor = None):
-        if tgt is None:
-            tgt = self.get_dummy_tgt(src)
-
+    def forward(self, src: Tensor, sot: Tensor, tgt: Tensor,
+                src_domain: Tensor, tgt_domain: Tensor,
+                src_key_padding_mask: Tensor = None, tgt_key_padding_mask: Tensor = None,
+                ):
         src = src.unsqueeze(1)
         tgt = tgt.unsqueeze(1)
+        sot = sot.unsqueeze(-1)
+
+        src_domain = src_domain.unsqueeze(1)
+        tgt_domain = tgt_domain.unsqueeze(1)
+
+        src_nan_mask = ~src.isnan()
+        torch.nan_to_num_(src)
+
+        src_domain_emb = self.domain_embedding(src_domain)
+        tgt_domain_emb = self.domain_embedding(tgt_domain)
 
         src_enc = self.encoder_src(src)  # NCL -> NEL
+        src_enc = torch.einsum("nel,nil->nel", src_enc, src_nan_mask)
         src_enc = src_enc.swapdims(1, 2)  # NEL -> NLE
         src_emb = self.positional_encoding(src_enc)
 
+        src_emb = torch.concat((src_domain_emb, src_emb), dim=1)
+
+        tgt_nan_mask = ~tgt.isnan()
+        torch.nan_to_num_(tgt)
+
         tgt_enc = self.encoder_tgt(tgt)  # tgt_enc: NCL -> NEL
-        torch.nan_to_num_(tgt_enc)
+        tgt_enc = torch.einsum("nel,nil->nel", tgt_enc, tgt_nan_mask)
         tgt_enc = tgt_enc.swapdims(1, 2)  # NEL -> NLE
         tgt_emb = self.positional_encoding(tgt_enc)
 
-        out_emb = self.transformer(src_emb, tgt_emb,
-                                   tgt_mask=self.tgt_mask
-                                   # src_key_padding_mask=self.src_padding_mask,
-                                   # tgt_key_padding_mask=self.tgt_padding_mask,
+        sot_nan_mask = ~sot.isnan().any(1, keepdims=True)
+        torch.nan_to_num_(sot)
+
+        sot_enc = self.encoder_sot(sot)
+        sot_enc = torch.einsum("nel,nil->nel", sot_enc, sot_nan_mask)
+        sot_enc = sot_enc.swapdims(1, 2)  # NEL -> NLE
+
+        sot_enc = sot_enc + tgt_domain_emb
+
+        sot_tgt = torch.concat((sot_enc, tgt_emb), dim=1)
+
+        # sot_tgt_emb = self.positional_encoding(sot_tgt_enc)
+
+        out_emb = self.transformer(src_emb, sot_tgt,
+                                   src_key_padding_mask=src_key_padding_mask,
+                                   tgt_key_padding_mask=tgt_key_padding_mask,
+                                   tgt_mask=self.tgt_mask,
                                    # memory_key_padding_mask=self.memory_padding_mask
                                    )
         out_emb = out_emb.swapdims(1, 2)  # NLE -> NEL
 
         out = self.decoder_out(out_emb)  # NEL -> NCL
 
-        out = out.squeeze(1) # NL
+        out = out.squeeze(1)  # NL
 
         return out
 

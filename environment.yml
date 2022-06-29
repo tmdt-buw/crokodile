@@ -1,18 +1,17 @@
-name: equarri-cutting-optimization
+name: robot2robot_transfer
 channels:
   - pytorch
-#  - conda-forge
+  - conda-forge
 #  - defaults
 dependencies:
   - numpy
-  - tensorboard
   - tqdm
-  - pytorch
-  - cudatoolkit=11.3
   - pip
-  - matplotlib
+  - wandb
+  - pybullet
+#  - ray-rllib
+#  - matplotlib
   - pip:
       - gym
-
-# conda env create -f environment.yml
-# conda env update --prefix ./env --file environment.yml  --prune
+      - "ray[rllib]"
+      - klampt

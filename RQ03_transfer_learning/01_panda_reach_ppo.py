@@ -4,6 +4,7 @@ import sys
 from multiprocessing import cpu_count
 from pathlib import Path
 from copy import deepcopy
+import tempfile
 
 import wandb
 from ray.rllib.agents.ppo import PPOTrainer
@@ -14,39 +15,9 @@ from environments.environment_robot_task import EnvironmentRobotTask, Callbacks
 from environments.environment_imitation_learning import EnvironmentImitationLearning
 
 register_env("robot_task", lambda config: EnvironmentRobotTask(config))
-register_env("imitation", lambda config: EnvironmentImitationLearning(config))
 
 wandb_mode = "online"
 # wandb_mode = "disabled"
-project = "ray_ppo_panda_reach"
-
-config_env_source = {
-    "name": "robot-task",
-    "robot_config": {
-        "name": "panda",
-        "sim_time": .1,
-        "scale": .1,
-    },
-    "task_config": {
-        "name": "reach",
-        "max_steps": 25,
-        "accuracy": .03,
-    },
-}
-
-config_env_target = {
-    "name": "robot-task",
-    "robot_config": {
-        "name": "ur5",
-        "sim_time": .1,
-        "scale": .1,
-    },
-    "task_config": {
-        "name": "reach",
-        "max_steps": 25,
-        "accuracy": .03,
-    },
-}
 
 config = {
     "framework": "torch",
@@ -64,6 +35,20 @@ config = {
     "train_batch_size": 2496,
     "sgd_minibatch_size": 256,
 
+    "env": "robot_task",
+    "env_config": {
+        "robot_config": {
+            "name": "panda",
+            "sim_time": .1,
+            "scale": .1,
+        },
+        "task_config": {
+            "name": "reach",
+            "max_steps": 25,
+            "accuracy": .03,
+        },
+    },
+
     # Parallelize environment rollouts.
     "num_workers": cpu_count(),
     # "num_workers": 1,
@@ -71,13 +56,10 @@ config = {
     "num_gpus": 1,
 }
 
-max_epochs = 4_000
+max_epochs = 0
 
 # Train for n iterations and report results (mean episode rewards).
-with wandb.init(config=config, project=project, group="panda_reach_ppo", entity="robot2robot", mode=wandb_mode):
-    config["env"] = "robot_task"
-    config["env_config"] = deepcopy(config_env_source)
-
+with wandb.init(config=config, project="PITL", group="panda_reach_ppo", entity="robot2robot", mode=wandb_mode):
     agent = PPOTrainer(config)
 
     for epoch in range(max_epochs):
@@ -96,4 +78,9 @@ with wandb.init(config=config, project=project, group="panda_reach_ppo", entity=
         if results['custom_metrics']["success_mean"] > .97:
             break
 
-    checkpoint = agent.save(wandb.run.dir)
+    with tempfile.TemporaryDirectory() as dir:
+        checkpoint = agent.save(dir)
+
+        artifact = wandb.Artifact('agent_panda_reach_ppo', type='rllib checkpoint')
+        artifact.add_dir(dir)
+        wandb.log_artifact(artifact)

@@ -51,3 +51,29 @@ class RobotIIWA(Robot):
                                         parameter_distributions=parameter_distributions)
 
         # todo introduce friction
+
+
+if __name__ == '__main__':
+    import pybullet as p
+
+    p.connect(p.GUI)
+    robot = RobotIIWA(p)
+
+    joint_positions = robot.calculate_inverse_kinematics([0, .5, .5], [1, 0, 0, 0])
+    state = robot.normalize_joints(joint_positions)
+
+    robot.reset({"arm": {"joint_positions": state}}, force=True)
+
+    # object = p.createMultiBody(
+    #     baseVisualShapeIndex=p.createVisualShape(p.GEOM_BOX, halfExtents=[.5] * 3),
+    #     baseCollisionShapeIndex=p.createCollisionShape(p.GEOM_BOX, halfExtents=[.5] * 3),
+    #     baseMass=0.,
+    # )
+    #
+    # p.resetBasePositionAndOrientation(object, [0, 0, 0], [0, 0, 0, 1])
+
+    while True:
+        # p.stepSimulation()
+        robot.step(robot.action_space.sample())
+        #
+        # time.sleep(.3)

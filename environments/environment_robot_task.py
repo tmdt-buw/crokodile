@@ -2,6 +2,8 @@ import random
 import sys
 from pathlib import Path
 from typing import Dict
+import numpy as np
+import os
 
 import pybullet as p
 import pybullet_data as pd
@@ -45,12 +47,15 @@ class EnvironmentRobotTask(Env):
             bullet_client.setTimeStep(time_step)
             bullet_client.setRealTimeSimulation(0)
 
+        np.random.seed(int.from_bytes(os.urandom(4), byteorder='little'))
+
         self.bullet_client = bullet_client
 
         self.task = get_task(task_config, self.bullet_client)
 
         self.robot = get_robot(robot_config, self.bullet_client)
 
+        # self.action_space = spaces.flatten_space(self.robot.action_space)
         self.action_space = self.robot.action_space
 
         self.state_space = spaces.Dict({
@@ -58,7 +63,7 @@ class EnvironmentRobotTask(Env):
             'task': self.task.state_space,
         })
 
-        self.goal_space = self.task.goal_space
+        self.goal_space = self.task.goal_space["desired"]
 
         self.max_steps = self.task.max_steps
 
@@ -98,13 +103,14 @@ class EnvironmentRobotTask(Env):
                 'robot': state_robot,
                 'task': state_task
             },
-            "goal": goal
+            "goal": goal["desired"]
         }
 
         return observation
 
     def step(self, action):
-        # print(action["hand"])
+
+        # action = spaces.unflatten(self.robot.action_space, action)
 
         state_robot = self.robot.step(action)
         state_task, goal, done, info = self.task.step(state_robot, self.robot)
@@ -114,7 +120,7 @@ class EnvironmentRobotTask(Env):
                 'robot': state_robot,
                 'task': state_task
             },
-            "goal": goal
+            "goal": goal["desired"]
         }
 
         success = self.success_criterion(goal)

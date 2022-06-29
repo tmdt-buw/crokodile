@@ -7,6 +7,9 @@ from copy import deepcopy
 
 import wandb
 from ray.rllib.agents.ppo import PPOTrainer
+# from ray.rllib.agents.ddpg import DDPGTrainer
+# from ray.rllib.agents.sac import SACTrainer
+
 from ray.tune.registry import register_env
 import tempfile
 import re
@@ -32,7 +35,7 @@ from models.domain_mapper import LitDomainMapper
 from config import *
 
 register_env("robot_task", lambda config: EnvironmentRobotTask(config))
-register_env("policy_extension", lambda config: EnvironmentPolicyExtension(config))
+# register_env("policy_extension", lambda config: EnvironmentPolicyExtension(config))
 
 env_source_name = "robot_task"
 env_source_config = {
@@ -72,16 +75,16 @@ config = {
         "fcnet_activation": "relu",
     },
 
-    "num_sgd_iter": 3,
-    "lr": 3e-4,
+    # "num_sgd_iter": 3,
+    # "lr": 3e-4,
 
-    "train_batch_size": 2496,
-    "sgd_minibatch_size": 256,
+    # "train_batch_size": 2496,
+    # "sgd_minibatch_size": 256,
 
     # Parallelize environment rollouts.
-    "num_workers": cpu_count(),
-    # "num_workers": 0,
-    "num_gpus": torch.cuda.device_count(),
+    # "num_workers": cpu_count(),
+    "num_workers": 0,
+    # "num_gpus": torch.cuda.device_count(),
     # "num_gpus": 1,
 }
 
@@ -165,11 +168,11 @@ with wandb.init(config=config, **wandb_config):
 
     agent_source = PPOTrainer(config_source)
 
-    agent_source_path = "agent_panda_reach_ppo:best"
+    agent_source_artifact = "agent_panda_reach_ppo:best"
     domain_mapper_artifact = "model-ajmxaubu:best"
 
     with tempfile.TemporaryDirectory() as dir:
-        download_folder = wandb.use_artifact(agent_source_path).download(dir)
+        download_folder = wandb.use_artifact(agent_source_artifact).download(dir)
 
         checkpoint_folder = os.path.join(download_folder, os.listdir(download_folder)[0])
         checkpoint_file = [f for f in os.listdir(checkpoint_folder) if re.match("checkpoint-\d+$", f)][0]
@@ -180,18 +183,11 @@ with wandb.init(config=config, **wandb_config):
         download_folder = wandb.use_artifact(domain_mapper_artifact).download(dir)
         domain_mapper = LitDomainMapper.load_from_checkpoint(os.path.join(download_folder, "model.ckpt"))
 
-
-    # with tempfile.TemporaryDirectory() as dir:
-    #     api = wandb.Api()
-    #     artifact = api.artifact(config["warm_start"])
-    #     artifact_dir = artifact.download(dir)
-    #
-    #     domain_mapper = LitDomainMapper.load_from_checkpoint(os.path.join(artifact_dir, "model.ckpt"))
-
-    domain_mapper = LitDomainMapper(
-        data_file_A="panda_10000_1000.pt",
-        data_file_B="ur5_10000_1000.pt",
-    )
+    # else:
+    # domain_mapper = LitDomainMapper(
+    #     data_file_A="panda_10000_1000.pt",
+    #     data_file_B="ur5_10000_1000.pt",
+    # )
 
     config_target = config.copy()
     config_target["env"] = env_target_name
@@ -209,6 +205,8 @@ with wandb.init(config=config, **wandb_config):
     }
 
     agent_target = PPOTrainer(config_target)
+
+    exit()
 
     # # overwrite policy
     target_weights = agent_target.get_weights()
@@ -233,7 +231,7 @@ with wandb.init(config=config, **wandb_config):
             'episode_success_mean': results['custom_metrics']["success_mean"],
         }, step=epoch)
 
-        if results['custom_metrics']["success_mean"] > .97:
+        if results['custom_metrics']["success_mean"] == 1.:
             break
 
     # checkpoint = agent_target.save(wandb.run.dir)

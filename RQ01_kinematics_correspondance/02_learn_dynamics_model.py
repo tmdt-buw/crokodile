@@ -9,26 +9,28 @@ from pathlib import Path
 import numpy as np
 import torch
 from torch.multiprocessing import Process, set_start_method
+from torch.nn import MSELoss
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
+
+import matplotlib.pyplot as plt
 
 import wandb
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from models.dht import get_dht_model, DHT_Transform
-from utils.nn import KinematicChainLoss, Rescale, NeuralNetwork, Pos2Pose
+from utils.nn import Rescale, NeuralNetwork, Pos2Pose
 
 try:
     set_start_method('spawn')
 except RuntimeError:
     pass
 
-wandb_mode = "online"
-# wandb_mode = "disabled"
+data_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../data")
 
-# model_type = "vanilla"
-model_type = "PINN"
+# wandb_mode = "online"
+wandb_mode = "disabled"
 
 
 def create_network(in_dim, out_dim, network_width, network_depth, dropout):
@@ -37,15 +39,12 @@ def create_network(in_dim, out_dim, network_width, network_depth, dropout):
 
     network_structure.append(('linear', out_dim))
 
-    model = torch.nn.Sequential(
-        NeuralNetwork(in_dim, network_structure),
-        Pos2Pose()
-    )
+    model = NeuralNetwork(in_dim, network_structure)
 
     return model
 
 
-def train_dht_model(config=None, project=None):
+def train_dynamics_model(config=None, project=None):
     print(device)
 
     # Initialize a new wandb run
@@ -55,46 +54,55 @@ def train_dht_model(config=None, project=None):
         config = wandb.config
 
         data_file = config.data_file
-
-        data_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), data_file)
+        data_path = os.path.join(data_folder, data_file)
 
         data = torch.load(data_path)
 
         states_train = data["states_train"]
+        actions_train = data["actions_train"]
+        next_states_train = data["next_states_train"]
+
         states_test = data["states_test"]
+        actions_test = data["actions_test"]
+        next_states_test = data["next_states_test"]
 
-        dht_model = get_dht_model(data["dht_params"], data["joint_limits"])
-
-        link_poses_train = dht_model(states_train).detach().detach()
-        link_poses_test = dht_model(states_test).detach().detach()
+        # dht_model = get_dht_model(data["dht_params"], data["joint_limits"])
+        # link_poses_train = dht_model(states_train).detach()
 
         states_test = states_test.to(device)
-        link_poses_test = link_poses_test.to(device)
+        actions_test = actions_test.to(device)
+        next_states_test = next_states_test.to(device)
 
-        loader_train = DataLoader(TensorDataset(states_train, link_poses_train), batch_size=config.batch_size,
-                                  shuffle=True)
-
-        weight_matrix_p = torch.zeros(len(data["dht_params"]), len(data["dht_params"]))
-        weight_matrix_p[-1, -1] = 1
-        weight_matrix_o = torch.zeros(len(data["dht_params"]), len(data["dht_params"]))
-        weight_matrix_o[-1, -1] = 1
-
-        loss_fn = KinematicChainLoss(weight_matrix_p, weight_matrix_o).to(device)
+        loss_fn = MSELoss().to(device)
 
         wandb.config.update({
             "loss_fn": str(loss_fn)
         })
 
-        if model_type == "vanilla":
-            model = create_network(
-                len(data["joint_limits"]),
-                len(data["dht_params"]) * 3,
-                config.network_width,
-                config.network_depth,
-                config.dropout
-            ).to(device)
-        elif model_type == "PINN":
-            model = get_dht_model(data["dht_params"], data["joint_limits"], config.upscale_dim).to(device)
+        if config.model_type == "SAS":
+            X_train = torch.concat((states_train, actions_train), dim=-1)
+            y_train = next_states_train
+            X_test = torch.concat((states_test, actions_test), dim=-1)
+            y_test = next_states_test
+        elif config.model_type == "SSA":
+            X_train = torch.concat((states_train, next_states_train), dim=-1)
+            y_train = actions_train
+            X_test = torch.concat((states_test, next_states_test), dim=-1)
+            y_test = actions_test
+
+        loader_train = DataLoader(TensorDataset(X_train, y_train),
+                                  batch_size=config.batch_size,
+                                  shuffle=True)
+
+        model_config = {
+            "in_dim": X_train.shape[1],
+            "out_dim": y_train.shape[1],
+            "network_width": config.network_width,
+            "network_depth": config.network_depth,
+            "dropout": config.dropout
+        }
+
+        model = create_network(**model_config).to(device)
 
         def init_weights(m):
             if isinstance(m, torch.nn.Linear):
@@ -114,7 +122,7 @@ def train_dht_model(config=None, project=None):
         elif config.optimizer == "adam":
             optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
 
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=.1, patience=50, min_lr=1e-6)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=.95, patience=50, min_lr=1e-6)
 
         best_loss = np.inf
         steps_since_improvement = 0
@@ -122,70 +130,63 @@ def train_dht_model(config=None, project=None):
 
         for epoch in tqdm(range(config.epochs)):
             model.train()
-            for states, link_poses in loader_train:
-                states, link_poses = states.to(device), link_poses.to(device)
+            for X, y in loader_train:
+                X, y = X.to(device), y.to(device)
                 optimizer.zero_grad()
 
-                link_poses_predicted = model(states)
-                loss, loss_p, loss_o = loss_fn(link_poses_predicted, link_poses)
+                y_predicted = model(X)
+                loss = loss_fn(y_predicted, y)
 
                 loss.backward()
                 optimizer.step()
 
             with torch.no_grad():
                 model.eval()
-                link_poses_predicted = model(states_test)
-                loss, loss_p, loss_o = loss_fn(link_poses_predicted, link_poses_test)
 
-                error_tcp_p = torch.norm(link_poses_predicted[:, -1, :3, -1] - link_poses_test[:, -1, :3, -1], p=2,
-                                         dim=-1).mean()
+                y_predicted = model(X_test)
+                loss = loss_fn(y_predicted, y_test)
 
                 wandb.log({
                     'loss': loss.item(),
-                    'loss_p': loss_p.item(),
-                    'loss_o': loss_o.item(),
-                    'error_tcp_p': error_tcp_p.item(),
                     'lr': optimizer.param_groups[0]["lr"],
                 }, step=epoch)
 
                 if loss.item() < best_loss:
                     best_loss = loss.item()
                     torch.save({
+                        'model_config': model_config,
                         'model_state_dict': model.state_dict(),
                         'optimizer_state_dict': optimizer.state_dict(),
                         'epoch': epoch
-                    }, os.path.join(wandb.run.dir, "model.pt"))
+                    }, os.path.join(wandb.run.dir, "dynamics_model.pt"))
                     steps_since_improvement = 0
                 else:
                     steps_since_improvement += 1
-                    if steps_since_improvement > patience:
+                    if steps_since_improvement > 2 * patience:
                         break
 
             scheduler.step(loss.item())
 
-            if loss < 1e-3 or loss.isnan().any():
+            if loss < 1e-4 or loss.isnan().any():
                 break
 
 
 def launch_agent(sweep_id, device_id, count):
     global device
     device = device_id
-    wandb.agent(sweep_id, function=train_dht_model, count=count)
+    wandb.agent(sweep_id, function=train_dynamics_model, count=count)
 
 
 if __name__ == '__main__':
-    data_file = "data/panda_10000_1000.pt"
-    project = f"dht_{os.path.basename(data_file).replace('.pt', '')}"
+    data_file = "ur5_10000_1000.pt"
+    project = f"dynamics_{os.path.basename(data_file).replace('.pt', '')}"
 
-    wandb.login()
+    # wandb.login()
 
-    assert model_type in ["vanilla", "PINN"]
-
-    sweep = True
+    sweep = False
 
     if sweep:
         sweep_config = {
-            "name": f"dht_model_sweep_{model_type}",
             "method": "bayes",
             'metric': {
                 'name': 'loss',
@@ -194,6 +195,9 @@ if __name__ == '__main__':
             "parameters": {
                 "data_file": {
                     "value": data_file
+                },
+                "model_type": {
+                    "value": "SSA"
                 },
                 "dropout": {
                     "min": 0.,
@@ -218,28 +222,6 @@ if __name__ == '__main__':
             }
         }
 
-        if model_type == "vanilla":
-            sweep_config["parameters"].update(
-                {
-                    "network_width": {
-                        "min": 128,
-                        "max": 2048
-                    },
-                    "network_depth": {
-                        "min": 2,
-                        "max": 16
-                    },
-                }
-            )
-        else:
-            sweep_config["parameters"].update(
-                {
-                    "upscale_dim": {
-                        "values": [False, 8, 32, 64]
-                    }
-                }
-            )
-
         runs_per_agent = 10
 
         sweep_id = wandb.sweep(sweep_config, project=project)
@@ -258,26 +240,16 @@ if __name__ == '__main__':
     else:
         config = {
             "data_file": data_file,
+            "model_type": "SSA",
             "optimizer": "adam",
             "lr": 1e-3,
             "epochs": 10_000,
             "batch_size": 32,
             "dropout": 0.,
+            "patience": 200,
+            "network_width": 32,
+            "network_depth": 2,
         }
 
-        if model_type == "vanilla":
-            config.update(
-                {
-                    "network_width": 32,
-                    "network_depth": 4,
-                }
-            )
-        else:
-            config.update(
-                {
-                    "upscale_dim": False
-                }
-            )
-
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        train_dht_model(config, project=project)
+        train_dynamics_model(config, project=project)

@@ -6,5 +6,5 @@ wandb_config = {
     "project": "PITL",
     "entity": "robot2robot",
 
-    "mode": "online"
+    # "mode": "disabled"
 }

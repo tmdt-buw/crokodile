@@ -1,23 +1,18 @@
-import datetime
-import os
 import sys
 from multiprocessing import cpu_count
 from pathlib import Path
-from copy import deepcopy
 import tempfile
 
 import wandb
 from ray.rllib.agents.ppo import PPOTrainer
 from ray.tune.registry import register_env
+import torch
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from environments.environment_robot_task import EnvironmentRobotTask, Callbacks
-from environments.environment_imitation_learning import EnvironmentImitationLearning
+from config import wandb_config
 
 register_env("robot_task", lambda config: EnvironmentRobotTask(config))
-
-wandb_mode = "online"
-# wandb_mode = "disabled"
 
 config = {
     "framework": "torch",
@@ -52,14 +47,18 @@ config = {
     # Parallelize environment rollouts.
     "num_workers": cpu_count(),
     # "num_workers": 1,
-    # "num_gpus": torch.cuda.device_count(),
-    "num_gpus": 1,
+    "num_gpus": torch.cuda.device_count(),
+    # "num_gpus": 1,
 }
 
-max_epochs = 0
+max_epochs = 10_000
+
+wandb_config.update({
+    "group": "panda_reach_ppo",
+})
 
 # Train for n iterations and report results (mean episode rewards).
-with wandb.init(config=config, project="PITL", group="panda_reach_ppo", entity="robot2robot", mode=wandb_mode):
+with wandb.init(config=config, **wandb_config):
     agent = PPOTrainer(config)
 
     for epoch in range(max_epochs):

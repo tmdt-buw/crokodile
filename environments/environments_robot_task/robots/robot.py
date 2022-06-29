@@ -3,6 +3,9 @@ import os
 import time
 from collections import namedtuple
 from enum import Enum
+import klampt
+from klampt.math import so3
+from klampt.model import ik
 
 import numpy as np
 import pybullet as p
@@ -114,6 +117,14 @@ class Robot:
         if dht_params is not None:
             self.dht_params = dht_params
 
+        self.ik_world = klampt.WorldModel()
+        self.ik_world.loadElement(urdf_file)
+        self.ik_model = self.ik_world.robot(0)
+        self.ik_dof_joint_ids = [jj for jj in range(self.ik_model.numLinks()) if
+                                 self.ik_model.getJointType(jj) == "normal"]
+
+        assert len(self.ik_dof_joint_ids) == len(self.joints), "Mismatch between specified DOF and DOF found by Klampt!"
+
     def __del__(self):
         self.bullet_client.removeBody(self.model_id)
 
@@ -131,25 +142,24 @@ class Robot:
 
     def calculate_inverse_kinematics(self, tcp_position, tcp_orientation, initial_pose=None, iters=1000):
 
-        return None
-        # conf = np.zeros_like(self.ik_model.getConfig())
-        #
-        # if initial_pose:
-        #     assert len(initial_pose) == len(self.ik_dof_joint_ids)
-        #     for ik_dof, pose in zip(self.ik_dof_joint_ids, initial_pose):
-        #         conf[ik_dof] = pose
-        #
-        # self.ik_model.setConfig(conf)
-        #
-        # obj = ik.objective(self.ik_model.link(self.ik_model.numLinks() - 1), t=list(tcp_position),
-        #                    R=so3.from_quaternion(tcp_orientation))
-        #
-        # res = ik.solve_global(obj, iters=iters, activeDofs=self.ik_dof_joint_ids)
-        #
-        # if not res:
-        #     return None
-        #
-        # return np.array([self.ik_model.getDOFPosition(jj) for jj in self.ik_dof_joint_ids])
+        conf = np.zeros_like(self.ik_model.getConfig())
+
+        if initial_pose:
+            assert len(initial_pose) == len(self.ik_dof_joint_ids)
+            for ik_dof, pose in zip(self.ik_dof_joint_ids, initial_pose):
+                conf[ik_dof] = pose
+
+        self.ik_model.setConfig(conf)
+
+        obj = ik.objective(self.ik_model.link(self.ik_model.numLinks() - 1), t=list(tcp_position),
+                           R=so3.from_quaternion(tcp_orientation))
+
+        res = ik.solve_global(obj, iters=iters, activeDofs=self.ik_dof_joint_ids)
+
+        if not res:
+            return None
+
+        return np.array([self.ik_model.getDOFPosition(jj) for jj in self.ik_dof_joint_ids])
 
     def step(self, action: np.ndarray):
         """
@@ -285,16 +295,78 @@ class Robot:
 
         return state
 
+    @staticmethod
+    def get_coordinate_system(axis_length=.1, indicators=p.GEOM_SPHERE,
+                              indicator_size=.01, indicator_colors=None):
+        coordinate_data = {
+            "linkMasses": [0] * 3,
+            "linkCollisionShapeIndices": [-1] * 3,
+            "linkOrientations": [[0, 0, 0, 1]] * 3,
+            "linkInertialFramePositions": [[0, 0, 0]] * 3,
+            "linkInertialFrameOrientations": [[0, 0, 0, 1]] * 3,
+            "linkParentIndices": [0] * 3,
+            "linkJointTypes": [p.JOINT_FIXED] * 3,
+            "linkJointAxis": [[1, 0, 0]] * 3,
+        }
+
+        linkVisualShapeIndices = []
+        linkPositions = []
+
+        if indicator_colors is None:
+            indicator_colors = []
+            for dim in range(3):
+                rgbaColor = [0, 0, 0, 1]
+                rgbaColor[dim] = 1
+                indicator_colors.append(rgbaColor)
+
+        assert len(indicator_colors) == 3
+
+        for dim, rgbaColor in enumerate(indicator_colors):
+
+            if indicators == p.GEOM_BOX:
+                linkVisualShapeIndices.append(p.createVisualShape(p.GEOM_BOX,
+                                                                  halfExtents=[
+                                                                                  indicator_size] * 3,
+                                                                  rgbaColor=rgbaColor))
+            elif indicators == p.GEOM_SPHERE:
+                linkVisualShapeIndices.append(p.createVisualShape(p.GEOM_SPHERE,
+                                                                  radius=indicator_size,
+                                                                  rgbaColor=rgbaColor))
+
+            linkPosition = [0, 0, 0]
+            linkPosition[dim] = axis_length
+
+            linkPositions.append(linkPosition)
+
+        coordinate_data["linkVisualShapeIndices"] = linkVisualShapeIndices
+        coordinate_data["linkPositions"] = linkPositions
+
+        return coordinate_data
+
     def get_tcp_pose(self):
         tcp_position, tcp_orientation, _, _, _, _, tcp_velocity, _ = self.bullet_client.getLinkState(self.model_id,
                                                                                                      self.joint_name2id[
                                                                                                          "tcp"],
+                                                                                                     computeForwardKinematics=True,
                                                                                                      computeLinkVelocity=True)
 
         tcp_position = np.array(tcp_position) - self.offset
         tcp_orientation = np.array(tcp_orientation)
 
         return tcp_position, tcp_orientation
+
+    def visualize_tcp(self):
+        tcp_pose = self.get_tcp_pose()
+
+        return p.createMultiBody(
+            baseMass=0,
+            baseVisualShapeIndex=p.createVisualShape(p.GEOM_SPHERE, radius=.01, rgbaColor=[0, 0, 0, 1],
+                                                     ),
+            basePosition=tcp_pose[0],
+            baseOrientation=tcp_pose[1],
+            **Robot.get_coordinate_system(axis_length=.01, indicators=p.GEOM_SPHERE,
+                                    indicator_size=.01, indicator_colors=None)
+        )
 
     def get_state(self):
         """

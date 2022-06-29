@@ -1,5 +1,5 @@
 import torch
-from .nn import NeuralNetwork, Rescale, Sawtooth
+from utils.nn import NeuralNetwork, Rescale, Sawtooth
 import numpy as np
 
 class DHT_Transform(torch.nn.Module):
@@ -11,11 +11,11 @@ class DHT_Transform(torch.nn.Module):
         self.proximal = proximal
 
         if theta is not None:
-            self.theta = torch.nn.Parameter(torch.tensor(theta, dtype=torch.float32), requires_grad=True)
+            self.theta = torch.nn.Parameter(torch.tensor(theta, dtype=torch.float32), requires_grad=False)
         if d is not None:
-            self.d = torch.nn.Parameter(torch.tensor(d, dtype=torch.float32), requires_grad=True)
-        self.a = torch.nn.Parameter(torch.tensor(a, dtype=torch.float32), requires_grad=True)
-        self.alpha = torch.nn.Parameter(torch.tensor(alpha, dtype=torch.float32), requires_grad=True)
+            self.d = torch.nn.Parameter(torch.tensor(d, dtype=torch.float32), requires_grad=False)
+        self.a = torch.nn.Parameter(torch.tensor(a, dtype=torch.float32), requires_grad=False)
+        self.alpha = torch.nn.Parameter(torch.tensor(alpha, dtype=torch.float32), requires_grad=False)
 
         self.theta_cos = torch.nn.Parameter(torch.tensor([[1, 0, 0, 0],
                                                           [0, 1, 0, 0],
@@ -119,6 +119,11 @@ class DHT_Model(torch.nn.Module):
         for dht_param in dht_params:
             self.transformations.append(DHT_Transform(**dht_param, upscale_dim=upscale_dim))
 
+        self.scaling_mask = torch.nn.Parameter(torch.zeros(4,4, dtype=bool), requires_grad=False)
+        self.scaling_mask[:3,-1] = True
+
+        self.scaling = torch.nn.Parameter(torch.ones(len(dht_params), requires_grad=True))
+
         self.pose_init = torch.nn.Parameter(torch.eye(4, 4), requires_grad=False)
 
     def forward(self, params):
@@ -127,10 +132,15 @@ class DHT_Model(torch.nn.Module):
 
         poses = []
 
-        for transformation, param in zip(self.transformations, params.split(self.active_joints_mask, 1)):
+        for transformation, param, scaling in zip(self.transformations, params.split(self.active_joints_mask, 1), self.scaling.split(1)):
             transformation = transformation(param)
 
-            pose = torch.einsum("bij,bjk->bik", pose, transformation)
+            scaling_transformation = self.scaling_mask * scaling
+            scaling_transformation.masked_fill_(~self.scaling_mask, 1.)
+
+            scaled_transformation = torch.einsum("bxy,xy->bxy", transformation, scaling_transformation)
+
+            pose = torch.einsum("bij,bjk->bik", pose, scaled_transformation)
 
             poses.append(pose)
 

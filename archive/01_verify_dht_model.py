@@ -14,7 +14,7 @@ import wandb
 import yaml
 from tqdm import tqdm
 
-from utils.dht import get_dht_model
+from models.dht import get_dht_model
 from utils.nn import KinematicChainLoss
 
 wandb_mode = "online"
@@ -231,7 +231,7 @@ def load_robot(data_file, bullet_client, **robot_kwargs):
 
 if __name__ == '__main__':
 
-    from utils.dht import get_dht_model
+    from models.dht import get_dht_model
     from utils.nn import Rescale, Sawtooth
     from torch.nn import Sequential
 

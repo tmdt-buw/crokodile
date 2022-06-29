@@ -11,7 +11,7 @@ import torch
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.strategies import DDPStrategy
-from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor
 
 import wandb
 from torch.multiprocessing import Process
@@ -29,7 +29,6 @@ except RuntimeError:
     pass
 
 
-
 def run_training(config, wandb_config={}):
     if "warm_start" in config:
 
@@ -41,37 +40,25 @@ def run_training(config, wandb_config={}):
             domain_mapper = LitDomainMapper.load_from_checkpoint(os.path.join(artifact_dir, "model.ckpt"))
     else:
         domain_mapper = LitDomainMapper(
-            **config,
-            dynamics_model_network_width=config["network_width"],
-            dynamics_model_network_depth=config["network_depth"],
-            dynamics_model_dropout=config["dropout"],
-            dynamics_model_lr=config["lr"],
-            state_mapper_network_width=config["network_width"],
-            state_mapper_network_depth=config["network_depth"],
-            state_mapper_dropout=config["dropout"],
-            state_mapper_lr=config["lr"],
-            action_mapper_network_width=config["network_width"],
-            action_mapper_network_depth=config["network_depth"],
-            action_mapper_dropout=config["dropout"],
-            action_mapper_lr=config["lr"],
+            **config
         )
 
     # trainer = pl.Trainer(strategy="ddp", accelerator="gpu", logger=wandb_logger)
     # trainer = pl.Trainer(strategy=DDPSpawnStrategy(), accelerator="gpu", logger=wandb_logger)
     callbacks = [
         ModelCheckpoint(monitor="validation_loss", mode="min"),
+        LearningRateMonitor(logging_interval='step'),
         # EarlyStopping(monitor="validation_loss", mode="min", patience=1000)
     ]
 
     wandb_logger = WandbLogger(**wandb_config, log_model="all")
 
     try:
-        trainer = pl.Trainer(accelerator="gpu", devices=devices,
+        trainer = pl.Trainer(strategy=DDPStrategy(), accelerator="gpu", devices=devices,
                              logger=wandb_logger, max_epochs=config["max_epochs"], callbacks=callbacks)
         trainer.fit(domain_mapper)
     except:
-
-        trainer = pl.Trainer(strategy=DDPStrategy(), accelerator="gpu", devices=devices,
+        trainer = pl.Trainer(accelerator="gpu", devices=devices,
                              logger=wandb_logger, max_epochs=config["max_epochs"], callbacks=callbacks)
         trainer.fit(domain_mapper)
 
@@ -92,6 +79,7 @@ if __name__ == '__main__':
     wandb_config.update(
         {
             "group": "domain_mapper",
+            "tags": ["state transformer encoder", "iter grad"]
         }
     )
 
@@ -159,30 +147,33 @@ if __name__ == '__main__':
             process.join()
 
     else:
-        def growth_fn(epoch):
-            if epoch < 500:
-                return 1.
-            else:
-                return min(1., .7 + .3 * (epoch - 500) / .5e3)
-
-        # y = [growth_fn(e) for e in range(1000)]
-
-        # import matplotlib.pyplot as plt
-        # plt.plot(y)
-        # plt.show()
-
         config = {
             "data_file_A": data_file_A,
             "data_file_B": data_file_B,
-            "network_width": 512,
-            "network_depth": 8,
-            # "weight_matrix_exponent": 1e5,
-            "dropout": 0.1,
-            "lr": 3e-4,
+            "transition_model_config": {
+                "network_width": 256,
+                "network_depth": 8,
+                "dropout": .1,
+                "out_activation": "tanh",
+                "lr": 3e-3,
+            },
+            "state_mapper_config": {
+                "network_width": 256,
+                "network_depth": 8,
+                "dropout": .1,
+                "out_activation": "tanh",
+                "lr": 3e-3,
+            },
+            "action_mapper_config": {
+                "network_width": 256,
+                "network_depth": 8,
+                "dropout": .1,
+                "out_activation": "tanh",
+                "lr": 3e-3,
+            },
             "batch_size": 32,
-            "max_epochs": 10_000,
-            # "warm_start": "robot2robot/PITL/model-phzphyen:best",
-            "growth_fn": growth_fn
+            "max_epochs": 1_000,
+            "components": ["s"]
         }
 
         # pl.utilities.rank_zero.rank_zero_only(wandb.init)(config=config, **wandb_config)

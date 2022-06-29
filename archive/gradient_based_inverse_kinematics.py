@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
 import wandb
-from utils.dht import get_dht_model
+from models.dht import get_dht_model
 from utils.nn import NeuralNetwork, KinematicChainLoss
 
 try:

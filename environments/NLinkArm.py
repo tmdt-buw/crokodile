@@ -13,15 +13,25 @@ from matplotlib.path import Path
 
 
 class NLinkArm(object):
-    def __init__(self, link_lengths, scales=np.pi):
+    def __init__(self, link_lengths, scales=np.pi, max_steps=20):
 
-        self.state_space = spaces.Box(-1., 1., (len(link_lengths),))
+        # self.observation_space = spaces.Box(-1., 1., (len(link_lengths) + 4,))
+        self.observation_space = spaces.Box(-1., 1., (len(link_lengths) + 2,))  # zwei weitere wegen goal
         self.action_space = spaces.Box(-1., 1., (len(link_lengths),))
+
+        # fuer stable baselines
+        self.metadata = {'render.modes': []}
+        # self.reward_range = (-float('inf'), float('inf'))
+        self.reward_range = (-1, 1)
+        self.max_steps = max_steps
+        self.step_counter = 0
+        ##
 
         self.link_lengths = np.array(link_lengths)
         self.joint_angles = np.zeros_like(link_lengths)
 
         self.position_base = np.zeros(2)
+        # self.max_length = sum(self.link_lengths)
 
         if scales is None:
             self.scales = np.ones_like(self.joint_angles)
@@ -33,33 +43,55 @@ class NLinkArm(object):
 
         self.goal = np.zeros(2)
 
-        self.dht_params = [[None, 0., link_length, 0.] for link_length in link_lengths]
-        self.joint_limits = [[-np.pi, np.pi] for _ in range(len(self.joint_angles))]
-
         self.reset()
 
-    def reset(self, desired_state=None):
-        if desired_state is None:
-            self.joint_angles = np.random.uniform(-np.pi, np.pi, len(self.joint_angles))
+    # reward-Funktion von mir ergaenzt
+    def reward_function(self, goal, state, done):
+        distance = np.linalg.norm(state[-4:-2] - goal)  # tcp [-4:-2]
+        achieved = distance < 0.05
+        # achieved = distance < 0.15
+        if achieved:
+            reward = 1
+        elif done:
+            reward = -1
         else:
-            assert len(desired_state) == len(self.joint_angles)
-            self.joint_angles = np.array(desired_state, dtype=float) * np.pi
+            reward = np.exp(-5 * np.linalg.norm(state[-4:-2] - goal)) - 1
+
+        return reward
+    ##
+
+    def reset(self, angles=None, goal=None):
+        if angles is None:
+            self.joint_angles = np.random.uniform(-1, 1,
+                                                  len(self.joint_angles))
+        else:
+            assert len(angles) == len(self.joint_angles)
+            self.joint_angles = np.array(angles, dtype=float) * np.pi
+
+        if goal is None:
+            self.goal = np.ones(2)
+            while np.linalg.norm(self.goal) > 1:
+                self.goal = np.random.random(2)
+        else:
+            self.goal = goal
 
         return self.get_state()
 
     def get_state(self):
-        # link_positions, tcp_orientation = self.get_link_positions()
-        # tcp_position = link_positions[-1]
-        #
+        link_positions, tcp_orientation = self.get_link_positions()
+        tcp_position = link_positions[-1]
+
         state_joint_angles = self.joint_angles / np.pi
-        #
-        # state = np.concatenate([state_joint_angles, tcp_position,
-        #                         np.sin(tcp_orientation),
-        #                         np.cos(tcp_orientation)])
 
-        return state_joint_angles
+        state = np.concatenate([state_joint_angles, self.goal])
 
-    def step(self, action):
+        return state
+
+    def step(self, action, last_action_of_sequence=True):   # nur dann counter erhoehen
+        ## anpassung stable_baseline
+        if last_action_of_sequence:
+            self.step_counter += 1
+        ###
 
         action = np.array(action)
 
@@ -69,7 +101,35 @@ class NLinkArm(object):
         self.joint_angles = np.arctan2(np.sin(self.joint_angles),
                                        np.cos(self.joint_angles))
 
-        return self.get_state()
+        # anpassung fuer stable-baselines
+        # return self.get_state()
+
+        if self.step_counter == self.max_steps:
+            done = True
+            self.step_counter = 0
+        else:
+            done = False
+
+        get_next_state = self.get_state()
+        get_tcp = self.get_tcp(torch.from_numpy(get_next_state)).squeeze()
+        # get_reward = self.reward_function(self.goal, get_next_state, done)
+
+        info = {}
+        # distance = np.linalg.norm(get_next_state[-4:-2] - self.goal)  # tcp [-4:-2]
+
+        distance = np.linalg.norm(get_tcp[:2] - self.goal)
+        # achieved = distance < 0.05
+        achieved = distance < 0.1
+        if achieved:
+            reward = 1
+            done = True
+        elif done:
+            reward = -1
+        else:
+            reward = np.exp(-5 * distance) - 1
+            reward = reward/10
+        reward *= 100
+        return get_next_state, reward, done, info
 
     def get_link_positions(self):
         accumulated_angle = np.zeros(1)
@@ -77,7 +137,6 @@ class NLinkArm(object):
         link_positions = np.empty((len(self.joint_angles) + 1, 2))
 
         link_positions[0] = np.copy(self.position_base)
-
         for ii, (angle, link) in enumerate(
                 zip(self.joint_angles, self.link_lengths)):
             accumulated_angle += angle
@@ -86,6 +145,8 @@ class NLinkArm(object):
                 accumulated_angle)
             link_positions[ii + 1][1] = link_positions[ii][1] + link * np.sin(
                 accumulated_angle)
+
+        # link_positions /= self.max_length
 
         return link_positions, accumulated_angle
 
@@ -97,29 +158,28 @@ class NLinkArm(object):
         new_angles = angles + action
         new_angles = torch.atan2(new_angles.sin(), new_angles.cos())
 
-        next_state = torch.empty_like(state)
-
-        next_state[:, :-4] = new_angles / np.pi
-
-        accumulated_angles = new_angles.cumsum(-1)
-
-        tcp_position = torch.tensor(self.position_base).unsqueeze(0).repeat(state.shape[0], 1).to(state.device)
-
-        # accumulated_angles = torch.zeros(len(next_state)).to(state.device)
-
-        for ii, link in enumerate(self.link_lengths):
-            tcp_position[:, 0] = tcp_position[:, 0] + \
-                                 link * accumulated_angles[:, ii].cos()
-            tcp_position[:, 1] = tcp_position[:, 1] + \
-                                 link * accumulated_angles[:, ii].sin()
-
-        # position tcp
-        next_state[:, -4:-2] = tcp_position
-        # orientation tcp
-        next_state[:, -2] = accumulated_angles[:, -1].sin()
-        next_state[:, -1] = accumulated_angles[:, -1].cos()
+        next_state= new_angles / np.pi
 
         return next_state
+
+    def get_tcp(self, state):
+        angles = state * np.pi
+        accumulated_angles = angles.cumsum(-1).unsqueeze(0)
+
+        tcp_state = torch.tensor(self.position_base).unsqueeze(0).repeat(1, 2).to(state.device)
+
+        for ii, link in enumerate(self.link_lengths):
+            tcp_state[:, 0] = tcp_state[:, 0] + \
+                                 link * accumulated_angles[:, ii].cos()
+            tcp_state[:, 1] = tcp_state[:, 1] + \
+                                 link * accumulated_angles[:, ii].sin()
+
+
+        # orientation tcp
+        tcp_state[:, 2] = accumulated_angles[:, -1].sin()
+        tcp_state[:, 3] = accumulated_angles[:, -1].cos()
+
+        return tcp_state
 
     def points_of_interest(self, state):
 
@@ -127,10 +187,9 @@ class NLinkArm(object):
 
         accumulated_angles = angles.cumsum(-1)
 
-        points_of_interest = torch.empty(state.shape[0], len(self.joint_angles) + 1, 2, device=state.device)
+        points_of_interest = torch.empty(state.shape[0], len(self.joint_angles) + 1, 2)
 
-        points_of_interest[:, 0] = torch.tensor(self.position_base, device=state.device).unsqueeze(0).expand(
-            state.shape[0], 2)
+        points_of_interest[:,0] = torch.tensor(self.position_base).unsqueeze(0).expand(state.shape[0],2).to(state.device)
 
         for ii, link in enumerate(self.link_lengths):
             points_of_interest[:, ii + 1, 0] = points_of_interest[:, ii, 0] + link * accumulated_angles[:, ii].cos()
@@ -185,7 +244,7 @@ if __name__ == "__main__":
 
     state = arm.reset(np.zeros_like(config["link_lengths"]))
 
-    arm.reset([0,0,.5])
+    arm.reset([0,0.25,.25])
 
     arm.plot()
 

@@ -4,6 +4,30 @@ import torch.nn as nn
 from pytorch3d import transforms
 from torch.nn.functional import mse_loss
 
+"""
+        Helper function to generate neural network from hyperparameters.
+        Activations between layers are ReLU.
+
+        Params:
+            in_dim: Input dimension of the network
+            out_dim: Output dimension of the network
+            network_width
+            network_depth
+            dropout
+            out_activation: What activation should be used on the network output
+    """
+
+
+def create_network(in_dim, out_dim, network_width, network_depth, dropout, out_activation=None, **kwargs):
+    network_structure = [('linear', network_width), ('relu', None),
+                         ('dropout', dropout)] * network_depth
+    network_structure.append(('linear', out_dim))
+
+    if out_activation:
+        network_structure.append((out_activation, None))
+
+    return NeuralNetwork(in_dim, network_structure)
+
 
 class Clamp(torch.nn.Module):
 
@@ -158,8 +182,8 @@ class Rescale(torch.nn.Module):
         m = (max_to - min_to) / (max_from - min_from)
         c = min_to - min_from * m
 
-        self.m = torch.nn.Parameter(m, requires_grad=True)
-        self.c = torch.nn.Parameter(c, requires_grad=True)
+        self.m = torch.nn.Parameter(m, requires_grad=False)
+        self.c = torch.nn.Parameter(c, requires_grad=False)
 
     def forward(self, x):
         return self.m * x + self.c

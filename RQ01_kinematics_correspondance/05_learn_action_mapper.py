@@ -26,6 +26,7 @@ except RuntimeError:
 wandb_mode = "online"
 
 data_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../data")
+state_mapper_file = "model.pt"
 
 
 wandb_mode = "disabled"
@@ -38,7 +39,7 @@ def create_network(in_dim, out_dim, network_width, network_depth, dropout):
     return NeuralNetwork(in_dim, network_structure)
 
 
-def train_state_mapping(config=None, project=None):
+def train_action_mapping(config=None, project=None):
     print(device)
 
     # Initialize a new wandb run
@@ -88,7 +89,8 @@ def train_state_mapping(config=None, project=None):
 
         weight_matrix_exponent = config.get("weight_matrix_exponent", torch.inf)
 
-        weight_matrix_p = torch.exp(-weight_matrix_exponent * torch.cdist(link_order_B.unsqueeze(-1), link_order_A.unsqueeze(-1)))
+        weight_matrix_p = torch.exp(
+            -weight_matrix_exponent * torch.cdist(link_order_B.unsqueeze(-1), link_order_A.unsqueeze(-1)))
         weight_matrix_p = torch.nan_to_num(weight_matrix_p, 1.)
 
         weight_matrix_o = torch.zeros(len(data_B["dht_params"]), len(data_A["dht_params"]))
@@ -100,7 +102,7 @@ def train_state_mapping(config=None, project=None):
             "loss_fn": str(loss_fn)
         })
 
-        model_config = {
+        action_mapper_AB_config = {
             "in_dim": len(data_A["joint_limits"]),
             "out_dim": len(data_B["joint_limits"]),
             "network_width": config.network_width,
@@ -108,14 +110,16 @@ def train_state_mapping(config=None, project=None):
             "dropout": config.dropout
         }
 
-        model = create_network(
-            **model_config
+        action_mapper_AB = create_network(
+            **action_mapper_AB_config
         ).to(device)
 
+        state_mapper_AB_data = torch.load(os.path.join(data_folder, config.state_mapper_AB))
+
         if config.optimizer == "sgd":
-            optimizer = torch.optim.SGD(model.parameters(), lr=config.lr, momentum=0.9)
+            optimizer = torch.optim.SGD(action_mapper_AB.parameters(), lr=config.lr, momentum=0.9)
         elif config.optimizer == "adam":
-            optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
+            optimizer = torch.optim.Adam(action_mapper_AB.parameters(), lr=config.lr)
 
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=.95, patience=200, min_lr=1e-5)
 
@@ -123,31 +127,24 @@ def train_state_mapping(config=None, project=None):
         patience = config.get("patience", np.inf)
 
         for epoch in tqdm(range(config.epochs)):
-            model.train()
+            action_mapper_AB.train()
             for states, link_poses in loader_train:
                 states, link_poses = states.to(device), link_poses.to(device)
                 optimizer.zero_grad()
 
-                states_target = model(states)
+                states_target = action_mapper_AB(states)
                 link_poses_target = dht_model_B(states_target)
 
                 loss, loss_p, loss_o = loss_fn(link_poses_target, link_poses)
 
                 # todo: integrate valid state discriminator (Seminar Elias / Mark)
 
-                [0,1]
-                invalidness = discriminator(states_target)
-
-                loss_d = invalidness.mean()
-
-                loss_total = loss + loss_d * k
-
-                loss_total.backward()
+                loss.backward()
                 optimizer.step()
 
             with torch.no_grad():
-                model.eval()
-                states_target = model(states_test)
+                action_mapper_AB.eval()
+                states_target = action_mapper_AB(states_test)
                 link_poses_target = dht_model_B(states_target)
 
                 loss, loss_p, loss_o = loss_fn(link_poses_target, link_poses_test)
@@ -166,8 +163,8 @@ def train_state_mapping(config=None, project=None):
                 if loss.item() < best_loss:
                     best_loss = loss.item()
                     torch.save({
-                        'model_config': model_config,
-                        'model_state_dict': model.state_dict(),
+                        'model_config': action_mapper_AB_config,
+                        'model_state_dict': action_mapper_AB.state_dict(),
                         'optimizer_state_dict': optimizer.state_dict(),
                     }, os.path.join(wandb.run.dir, "model.pt"))
                     steps_since_improvement = 0
@@ -185,19 +182,25 @@ def train_state_mapping(config=None, project=None):
 def launch_agent(sweep_id, device_id, count):
     global device
     device = device_id
-    wandb.agent(sweep_id, function=train_state_mapping, count=count)
+    wandb.agent(sweep_id, function=train_action_mapping, count=count)
 
 
 if __name__ == '__main__':
     data_file_A = "panda_10000_1000.pt"
     data_file_B = "ur5_10000_1000.pt"
 
-    project = "state_mapper"
+    state_mapper_AB = "state_mapper_panda_ur5.pt"
+    dynamics_B = "dynamics_ur5.pt"
 
-    sweep = True
+    project = "action_mapper"
+
+    # wandb.login()
+
+    sweep = False
 
     if sweep:
-        sweep_id = None
+        # sweep_id = None
+        sweep_id = "robot2robot/state_mapper/uv04xo6w"
         runs_per_agent = 10
 
         if sweep_id is None:
@@ -251,16 +254,16 @@ if __name__ == '__main__':
 
         processes = []
 
-        # if torch.cuda.is_available():
-        for device_id in range(torch.cuda.device_count()):
-            process = Process(target=launch_agent, args=(sweep_id, device_id, runs_per_agent))
-            process.start()
-            processes.append(process)
-        # else:
-        #     for device_id in range(cpu_count() // 2):
-        #         process = Process(target=launch_agent, args=(sweep_id, "cpu", runs_per_agent))
-        #         process.start()
-        #         processes.append(process)
+        if torch.cuda.is_available():
+            for device_id in range(torch.cuda.device_count()):
+                process = Process(target=launch_agent, args=(sweep_id, device_id, runs_per_agent))
+                process.start()
+                processes.append(process)
+        else:
+            for device_id in range(cpu_count() // 2):
+                process = Process(target=launch_agent, args=(sweep_id, "cpu", runs_per_agent))
+                process.start()
+                processes.append(process)
 
         for process in processes:
             process.join()
@@ -268,6 +271,8 @@ if __name__ == '__main__':
     else:
         config = {
             "data_files": (data_file_A, data_file_B),
+            "state_mapper_AB": state_mapper_AB,
+            "dynamics_B": dynamics_B,
             "network_width": 512,
             "network_depth": 4,
             "dropout": 0.,
@@ -279,4 +284,4 @@ if __name__ == '__main__':
         }
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        train_state_mapping(config, project=project)
+        train_action_mapping(config, project=project)
