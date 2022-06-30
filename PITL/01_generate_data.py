@@ -18,64 +18,50 @@ p.connect(p.DIRECT)
 
 # from utils.utils import unwind_dict_values
 
-def generate_samples(robot, n):
-    states = []
-    actions = []
-    next_states = []
+def generate_samples(robot, samples, trajectory_length):
+    trajectories_states = []
+    trajectories_actions = []
 
-    for _ in tqdm(range(n)):
+    for _ in tqdm(range(samples)):
+        trajectory_states = []
+        trajectory_actions = []
+
         state = robot.reset()
+        state_ = state["arm"]["joint_positions"]
+        trajectory_states.append(state_)
+
         action = robot.action_space.sample()
-        next_state = robot.step(action)
 
-        state_joints_arm = state["arm"]["joint_positions"]
-        state_joints_arm = torch.FloatTensor(state_joints_arm)
+        for _ in range(trajectory_length):
+            action_ = action["arm"]
+            trajectory_actions.append(action_)
 
-        action_arm = action["arm"]
-        action_arm = torch.FloatTensor(action_arm)
+            state = robot.step(action)
+            state_ = state["arm"]["joint_positions"]
+            trajectory_states.append(state_)
 
-        next_state_joints_arm = next_state["arm"]["joint_positions"]
-        next_state_joints_arm = torch.FloatTensor(next_state_joints_arm)
+        trajectory_states = torch.tensor(trajectory_states)
+        trajectory_actions = torch.tensor(trajectory_actions)
 
-        states.append(state_joints_arm)
-        actions.append(action_arm)
-        next_states.append(next_state_joints_arm)
+        trajectories_states.append(trajectory_states)
+        trajectories_actions.append(trajectory_actions)
 
-    states = torch.stack(states)
-    actions = torch.stack(actions)
-    next_states = torch.stack(next_states)
+    trajectories_states = torch.stack(trajectories_states).float()
+    trajectories_actions = torch.stack(trajectories_actions).float()
 
-    return states, actions, next_states
+    return trajectories_states, trajectories_actions
 
 
 if __name__ == '__main__':
     os.makedirs(data_folder, exist_ok=True)
 
-    n_samples_train = 1000
-    n_samples_test = 10
+    trajectory_length = 5
+    samples_train = 10
+    samples_test = 10
 
     for robot_name, robot_config in [
-        # ("panda", {"name": "panda", "sim_time": .1, "scale": .1}),
+        ("panda", {"name": "panda", "sim_time": .1, "scale": .1}),
         ("ur5", {"name": "ur5", "sim_time": .1, "scale": .1}),
-        # ("simple3", {
-        #     "name": "simple",
-        #     "dht_params": [
-        #         {"d": 0., "a": .333, "alpha": 0.},
-        #         {"d": 0., "a": .333, "alpha": 0.},
-        #         {"d": 0., "a": .333, "alpha": 0.},
-        #     ],
-        #     "joint_limits": torch.tensor([[-1, 1], [-1, 1], [-1, 1]]) * np.pi,
-        #     "scales": .3 * np.pi
-        # }),
-        # ("simple2", {
-        #     "name": "simple",
-        #     "dht_params": [
-        #         {"d": 0., "a": .5, "alpha": 0.},
-        #         {"d": 0., "a": .5, "alpha": 0.},
-        #     ],
-        #     "joint_limits": torch.tensor([[-1, 1], [-1, 1]]) * 2 * np.pi,
-        #     "scales": .3 * np.pi
-        # })
     ]:
         print(f"Generate data: {robot_name}")
 
@@ -89,22 +75,20 @@ if __name__ == '__main__':
         else:
             joint_limits = torch.tensor([joint.limits for joint in robot.joints])
 
-        states_train, actions_train, next_states_train = generate_samples(robot, n_samples_train)
-        states_test, actions_test, next_states_test = generate_samples(robot, n_samples_test)
+        trajectories_states_train, trajectories_actions_train = generate_samples(robot, samples_train, trajectory_length)
+        trajectories_states_test, trajectories_actions_test = generate_samples(robot, samples_test, trajectory_length)
 
         torch.save(
             {
-                "states_train": states_train,
-                "actions_train": actions_train,
-                "next_states_train": next_states_train,
-                "states_test": states_test,
-                "actions_test": actions_test,
-                "next_states_test": next_states_test,
+                "trajectories_states_train": trajectories_states_train,
+                "trajectories_actions_train": trajectories_actions_train,
+                "trajectories_states_test": trajectories_states_test,
+                "trajectories_actions_test": trajectories_actions_test,
                 "dht_params": robot.dht_params,
                 "joint_limits": joint_limits,
                 "robot_config": robot_config,
                 "state_space": robot.state_space,
                 "action_space": robot.action_space
             },
-            os.path.join(data_folder, f"{robot_name}_{n_samples_train}_{n_samples_test}.pt")
+            os.path.join(data_folder, f"{robot_name}_{trajectory_length}_{samples_train}_{samples_test}.pt")
         )
