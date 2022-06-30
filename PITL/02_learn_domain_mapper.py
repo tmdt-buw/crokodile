@@ -43,24 +43,27 @@ def run_training(config, wandb_config={}):
             **config
         )
 
-    # trainer = pl.Trainer(strategy="ddp", accelerator="gpu", logger=wandb_logger)
-    # trainer = pl.Trainer(strategy=DDPSpawnStrategy(), accelerator="gpu", logger=wandb_logger)
     callbacks = [
         ModelCheckpoint(monitor="validation_loss", mode="min"),
-        LearningRateMonitor(logging_interval='step'),
+        LearningRateMonitor(logging_interval='epoch'),
         # EarlyStopping(monitor="validation_loss", mode="min", patience=1000)
     ]
 
-    wandb_logger = WandbLogger(**wandb_config, log_model="all")
+    wandb_logger = WandbLogger(
+        **wandb_config,
+        log_model=True
+    )
 
-    try:
-        trainer = pl.Trainer(strategy=DDPStrategy(), accelerator="gpu", devices=devices,
-                             logger=wandb_logger, max_epochs=config["max_epochs"], callbacks=callbacks)
-        trainer.fit(domain_mapper)
-    except:
-        trainer = pl.Trainer(accelerator="gpu", devices=devices,
-                             logger=wandb_logger, max_epochs=config["max_epochs"], callbacks=callbacks)
-        trainer.fit(domain_mapper)
+    # try:
+    trainer = pl.Trainer(max_epochs=config["max_epochs"], max_time="00:07:55:00",
+                         strategy=DDPStrategy(), accelerator="gpu", devices=devices,
+                         logger=wandb_logger, callbacks=callbacks)
+    trainer.fit(domain_mapper)
+    # except:
+    #     trainer = pl.Trainer(max_epochs=config["max_epochs"], max_time="00:07:55:00",
+    #                          accelerator="gpu", devices=devices,
+    #                          logger=wandb_logger, callbacks=callbacks)
+    #     trainer.fit(domain_mapper)
 
 
 def launch_agent(sweep_id, devices_ids, count):
@@ -73,13 +76,14 @@ if __name__ == '__main__':
     CPU_COUNT = cpu_count()
     GPU_COUNT = torch.cuda.device_count()
 
-    data_file_A = "panda_10000_1000.pt"
-    data_file_B = "ur5_10000_1000.pt"
+    data_file_A = "panda_5_10000_1000.pt"
+    data_file_B = "ur5_5_10000_1000.pt"
 
     wandb_config.update(
         {
             "group": "domain_mapper",
-            "tags": ["state transformer encoder", "iter grad"]
+            "tags": ["behavior encoder"],
+            # "mode": "disabled"
         }
     )
 
@@ -165,29 +169,30 @@ if __name__ == '__main__':
                 "lr": 3e-3,
             },
             "action_mapper_config": {
-                "network_width": 256,
-                "network_depth": 8,
-                "dropout": .1,
-                "out_activation": "tanh",
-                "lr": 3e-3,
+                "behavior_dim": 64,
+                "encoder": {
+                    "lr": 3e-3,
+                    "d_model": 16,
+                    "nhead": 4,
+                    "num_layers": 2,
+                    "num_decoder_layers": 2,
+                    "dim_feedforward": 64,
+                },
+                "decoder": {
+                    "network_width": 256,
+                    "network_depth": 8,
+                    "dropout": .1,
+                    "out_activation": "tanh",
+                },
             },
-            "batch_size": 32,
-            "max_epochs": 1_000,
-            "components": ["s"]
-        }
 
-        # pl.utilities.rank_zero.rank_zero_only(wandb.init)(config=config, **wandb_config)
-        # wandb.init(config=config, **wandb_config)
+            "batch_size": 32,
+            "max_epochs": 10_000,
+            "num_workers": cpu_count(),
+        }
 
         torch.cuda.empty_cache()
 
-        if torch.cuda.is_available():
-            devices = -1
-            config["num_workers"] = cpu_count() // torch.cuda.device_count()
-        else:
-            devices = None
-            config["num_workers"] = cpu_count()
-
-        # devices = list(range(1,8))
+        devices = -1
 
         run_training(config, wandb_config)

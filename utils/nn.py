@@ -237,7 +237,7 @@ class Pos2Pose(nn.Module):
 
         poses = torch.cat((orientations, positions), dim=-1)
 
-        pad = torch.tensor([0,0,0,1], device=x.device)
+        pad = torch.tensor([0, 0, 0, 1], device=x.device)
         pad = pad.expand(positions.shape[0], positions.shape[1], 1, 4)
 
         out = torch.cat((poses, pad), dim=-2)
@@ -267,47 +267,79 @@ class PoseLoss(torch.nn.Module):
 
 
 class KinematicChainLoss(PoseLoss):
-    def __init__(self, weight_matrix_positions=None, weight_matrix_orientations=None, eps=1e-7):
+    def __init__(self, weight_matrix_positions, weight_matrix_orientations, reduction=True, verbose_output=False,
+                 eps=1e-7):
         super(KinematicChainLoss, self).__init__()
-        if weight_matrix_positions is not None:
-            self.weight_matrix_positions = torch.nn.Parameter(weight_matrix_positions, requires_grad=False)
 
-        if weight_matrix_orientations is not None:
-            self.weight_matrix_orientations = torch.nn.Parameter(weight_matrix_orientations, requires_grad=False)
+        self.weight_matrix_positions = torch.nn.Parameter(weight_matrix_positions, requires_grad=False)
 
+        self.weight_matrix_orientations = torch.nn.Parameter(weight_matrix_orientations, requires_grad=False)
+
+        self.reduction = reduction
+        self.verbose_output = verbose_output
         self.eps = eps
 
-    def forward(self, output, target):
+    def forward(self, X, Y):
+        """
+            - X: :math:`(B, S, M, 4, 4)`
+            - Y: :math:`(B, T, N, 4, 4)`
 
-        if hasattr(self, "weight_matrix_positions"):
-            distance_positions = torch.cdist(output[:, :, :3, -1].contiguous(), target[:, :, :3, -1].contiguous())
-            loss_positions = torch.einsum("bxy,xy", distance_positions, self.weight_matrix_positions).mean()
-        else:
-            loss_positions = torch.norm(output[:, -1, :3, -1] - target[:, -1, :3, -1], p=2, dim=-1).mean()
+            - Y: :math:`(B, S, T)`
+        """
 
-        if hasattr(self, "weight_matrix_orientations"):
-            # http://www.boris-belousov.net/2016/12/01/quat-dist/
-            # R = P * Q^T
-            # tr_R = R * eye(3)
+        if len(X.shape) == 4:
+            # S == 1
+            X.unsqueeze_(1)
 
-            output_ = output[:, :, :3, :3]  # size: bxsx3x3
-            target_ = torch.transpose(target[:, :, :3, :3], -1, -2)  # size: bxtx3x3
+        if len(Y.shape) == 4:
+            # T == 1
+            Y.unsqueeze_(1)
 
-            tr_R = torch.einsum("bsxy,btyz,xz->bst", output_, target_,  torch.eye(3, device=output_.device))
+        assert len(X.shape) == 5 and len(Y.shape) == 5
 
-            # calculate angle
-            # add eps to make input to arccos (-1, 1) to avoid numerical instability
-            # scale between 0 and 1
-            distance_orientations = torch.acos(torch.clamp((tr_R - 1) / (2 + self.eps), -1 + self.eps, 1 - self.eps)) / np.pi
+        s, m = X.shape[1:3]
+        t, n = Y.shape[1:3]
 
-            loss_orientations = torch.einsum("bxy,xy", distance_orientations, self.weight_matrix_orientations).mean()
-        else:
-            loss_orientations = torch.norm(transforms.matrix_to_quaternion(output[:, -1, :3, :3]) -
-                                           transforms.matrix_to_quaternion(target[:, -1, :3, :3]), p=2, dim=-1).mean()
+        # b(s*n)44
+        X = X.view(X.shape[0], -1, *X.shape[-2:])
+        Y = Y.view(Y.shape[0], -1, *Y.shape[-2:])
+
+        # compute position loss
+        # b(s*n)(t*m)
+        distance_positions = torch.cdist(X[..., :3, -1].contiguous(), Y[..., :3, -1].contiguous())
+        distance_positions = distance_positions.view(-1, s, m, t, n)
+
+        # todo: make scaling a parameter
+        distance_positions = 1 - torch.exp(-10 * distance_positions)
+
+        loss_positions = torch.einsum("bsmtn,mn->bst", distance_positions, self.weight_matrix_positions)
+
+        # compute orientation loss
+
+        # http://www.boris-belousov.net/2016/12/01/quat-dist/
+        # R = P * Q^T
+        # tr_R = R * eye(3)
+        tr_R = torch.einsum("bsxy,btyz,xz->bst", X[..., :3, :3], torch.transpose(Y[..., :3, :3], -1, -2),
+                            torch.eye(3, device=X.device))
+
+        # calculate angle
+        # add eps to make input to arccos (-1, 1) to avoid numerical instability
+        # scale between 0 and 1
+        distance_orientations = torch.acos(
+            torch.clamp((tr_R - 1) / (2 + self.eps), -1 + self.eps, 1 - self.eps)) / np.pi
+        distance_orientations = distance_orientations.view(-1, s, m, t, n)
+
+        loss_orientations = torch.einsum("bsmtn,mn->bst", distance_orientations, self.weight_matrix_orientations)
 
         loss = loss_positions + loss_orientations
 
-        return loss, loss_positions, loss_orientations
+        if self.reduction:
+            loss = loss.mean()
+
+        if self.verbose_output:
+            return loss, loss_positions, loss_orientations
+        else:
+            return loss
 
 
 class WeightedPoseLoss(PoseLoss):
