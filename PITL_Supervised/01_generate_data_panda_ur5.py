@@ -11,115 +11,101 @@ from environments.environments_robot_task.robots import get_robot
 from config import *
 
 import pybullet as p
-
-
-def generate_samples(robotA, robotB, n):
-    states_A = []
-    actions_A = []
-    next_states_A = []
-    states_B = []
-
-    pbar = tqdm(total=n, desc="Progress")
-
-    while len(states_A) < n:
-        state_A = robotA.reset()
-        tcp_pose_A = robotA.get_tcp_pose()
-
-        joint_positions_B = robotB.calculate_inverse_kinematics(tcp_pose_A[0], tcp_pose_A[1][[3, 0, 1, 2]])
-
-        if joint_positions_B is None:
-            continue
-
-        state_joints_arm_B = robotB.normalize_joints(joint_positions_B)
-        state_joints_arm_B = torch.FloatTensor(state_joints_arm_B)
-
-        state_joints_arm_A = state_A["arm"]["joint_positions"]
-        state_joints_arm_A = torch.FloatTensor(state_joints_arm_A)
-
-        action_A = robotA.action_space.sample()
-        next_state_A = robotA.step(action_A)
-
-        action_arm_A = action_A["arm"]
-        action_arm_A = torch.FloatTensor(action_arm_A)
-
-        next_state_joints_arm_A = next_state_A["arm"]["joint_positions"]
-        next_state_joints_arm_A = torch.FloatTensor(next_state_joints_arm_A)
-
-        states_A.append(state_joints_arm_A)
-        actions_A.append(action_arm_A)
-        next_states_A.append(next_state_joints_arm_A)
-
-        states_B.append(state_joints_arm_B)
-
-        pbar.update(1)
-
-    states_A = torch.stack(states_A)
-    actions_A = torch.stack(actions_A)
-    next_states_A = torch.stack(next_states_A)
-    states_B = torch.stack(states_B)
-
-    return states_A, actions_A, next_states_A, states_B
-
+from models.dht import get_dht_model
+from torch.utils.data import DataLoader, TensorDataset
+import wandb
+from utils.nn import KinematicChainLoss
 
 if __name__ == '__main__':
-    os.makedirs(data_folder, exist_ok=True)
+    # with wandb.init(mode="disabled"):
+    with wandb.init():
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    p.connect(p.DIRECT)
+        data_file_A = "panda_5_10000_1000.pt"
+        data_file_B = "ur5_5_10000_1000.pt"
 
-    n_samples_train = 10_000
-    n_samples_test = 1000
+        data_file_out = "panda-ur5_5_10000_1000.pt"
 
-    robot_A_name, robot_A_config = ("panda", {"name": "panda", "sim_time": .1, "scale": .1})
-    robot_B_name, robot_B_config = ("ur5", {"name": "ur5", "sim_time": .1, "scale": .1})
+        data_A = torch.load(os.path.join(data_folder, data_file_A))
+        data_B = torch.load(os.path.join(data_folder, data_file_B))
 
-    print(f"Generate data: {robot_A_name} {robot_B_name}")
+        weight_matrix_p = torch.zeros(len(data_A["dht_params"]), len(data_B["dht_params"]))
+        weight_matrix_p[-1, -1] = 1
+        weight_matrix_o = torch.zeros(len(data_A["dht_params"]), len(data_B["dht_params"]))
+        weight_matrix_o[-1, -1] = 1
 
-    robot_A = get_robot({
-        "name": robot_A_name,
-        **robot_A_config
-    }, bullet_client=p)
+        loss_fn = KinematicChainLoss(weight_matrix_p, weight_matrix_o, reduction=False).to(device)
 
-    robot_B = get_robot({
-        "name": robot_B_name,
-        **robot_B_config
-    }, bullet_client=p)
+        dht_model_A = get_dht_model(data_A["dht_params"], data_A["joint_limits"])
+        dht_model_B = get_dht_model(data_B["dht_params"], data_B["joint_limits"]).to(device)
 
-    for link_A in range(p.getNumJoints(robot_A.model_id)):
-        p.setCollisionFilterGroupMask(robot_A.model_id, link_A, 0, 0)
+        batch_size = 1000
+        seeds = 5
+        ik_steps = 1000
 
-    for link_B in range(p.getNumJoints(robot_B.model_id)):
-        p.setCollisionFilterGroupMask(robot_B.model_id, link_B, 0, 0)
+        states_A = data_A["trajectories_states_train"].reshape(-1, data_A["trajectories_states_train"].shape[-1])
 
-    joint_limits_A = torch.tensor([joint.limits for joint in robot_A.joints])
-    joint_limits_B = torch.tensor([joint.limits for joint in robot_B.joints])
+        # states_A = states_A[:10]
+        # states_B = data_B["trajectories_states_train"].reshape(-1, data_B["trajectories_states_train"].shape[-1])
+        link_poses_A = dht_model_A(states_A).detach()
 
-    states_train_A, actions_train_A, next_states_train_A, states_train_B = generate_samples(robot_A, robot_B, n_samples_train)
-    states_test_A, actions_test_A, next_states_test_A, states_test_B = generate_samples(robot_A, robot_B, n_samples_test)
+        states_B = []
 
-    torch.save(
-        {
-            "A": {
-                "states_train": states_train_A,
-                "states_test": states_test_A,
-                "actions_train": actions_train_A,
-                "actions_test": actions_test_A,
-                "next_states_train": next_states_train_A,
-                "next_states_test": next_states_test_A,
-                "dht_params": robot_A.dht_params,
-                "joint_limits": joint_limits_A,
-                "robot_config": robot_A_config,
-                "state_space": robot_A.state_space,
-                "action_space": robot_A.action_space
-            },
-            "B": {
-                "states_train": states_train_B,
-                "states_test": states_test_B,
-                "dht_params": robot_B.dht_params,
-                "joint_limits": joint_limits_B,
-                "robot_config": robot_B_config,
-                "state_space": robot_B.state_space,
-                "action_space": robot_B.action_space
-            },
-        },
-        os.path.join(data_folder, f"{robot_A_name}-{robot_B_name}_{n_samples_train}_{n_samples_test}.pt")
-    )
+        for batch_id, (link_poses_A_,) in tqdm(enumerate(DataLoader(TensorDataset(link_poses_A), batch_size=batch_size, shuffle=False))):
+            link_poses_A_ = link_poses_A_.to(device).repeat_interleave(seeds, dim=0)
+
+            states_B_ = torch.rand(link_poses_A_.shape[0], *data_B["trajectories_states_train"].shape[2:]).to(device)
+            states_B_ = states_B_ * 2 - 1
+            states_B_ = torch.nn.Parameter(states_B_)
+
+            optimizer = torch.optim.AdamW([states_B_])
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=.1, patience=50, min_lr=1e-6)
+
+            for step in range(ik_steps):
+                link_poses_B_ = dht_model_B(states_B_)
+                loss = loss_fn(link_poses_A_, link_poses_B_)
+                loss = loss.reshape(-1, seeds)
+
+                optimizer.zero_grad()
+                loss.mean().backward()
+                optimizer.step()
+
+                wandb.log({
+                    'loss_mean': loss.mean().item(),
+                    'loss_best': loss.min(dim=0)[0].mean().item(),
+                    'lr': optimizer.param_groups[0]["lr"],
+                }, step=step + batch_id * ik_steps)
+
+            states_B_ = states_B_.reshape(-1, seeds, *states_B_.shape[1:])
+            states_B_ = states_B_[range(states_B_.shape[0]), loss.argmin(1)]
+            states_B.append(states_B_)
+
+        states_B = torch.concat(states_B)
+
+        link_poses_B = dht_model_B(states_B)
+
+        # loss = loss_fn(link_poses_A, link_poses_B)
+
+        # print(loss.mean())
+
+        # p.connect(p.GUI)
+        #
+        # robot = get_robot({
+        #     "name": "ur5",
+        #     **{"name": "ur5", "sim_time": .1, "scale": .1}
+        # }, bullet_client=p)
+        #
+        # robot.reset({"arm": {"joint_positions": states_B[0].cpu().detach().numpy()}})
+
+
+        data = {
+            "A": data_A,
+            "B": data_B,
+        }
+
+        data["A"]["corresponding_states"] = states_B.cpu().detach()
+
+        torch.save(
+            data,
+            os.path.join(data_folder, data_file_out)
+        )
