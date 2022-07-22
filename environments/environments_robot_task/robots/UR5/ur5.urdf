@@ -346,7 +346,7 @@
     <joint name="tcp" type="fixed">
         <parent link="robotiq_85_base_link"/>
         <child link="tcp"/>
-        <origin rpy="3.14159 0 -1.570796" xyz="0.0 0.0 0.15"/>
+        <origin rpy="0 0 0" xyz="0.0 0.0 0.15"/>
         <axis xyz="0 1 0"/>
     </joint>
 

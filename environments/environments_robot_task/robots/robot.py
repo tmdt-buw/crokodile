@@ -346,18 +346,19 @@ class Robot:
 
         return tcp_position, tcp_orientation
 
-    def visualize_tcp(self):
-        tcp_pose = self.get_tcp_pose()
+    def visualize_tcp(self, length=.1):
+        position, orientation = self.get_tcp_pose()
+        orientation = np.reshape(p.getMatrixFromQuaternion(orientation), (3,3))
 
-        return p.createMultiBody(
-            baseMass=0,
-            baseVisualShapeIndex=p.createVisualShape(p.GEOM_SPHERE, radius=.01, rgbaColor=[0, 0, 0, 1],
-                                                     ),
-            basePosition=tcp_pose[0],
-            baseOrientation=tcp_pose[1],
-            **Robot.get_coordinate_system(axis_length=.01, indicators=p.GEOM_SPHERE,
-                                    indicator_size=.01, indicator_colors=None)
-        )
+        lines = []
+
+        for lineid in range(3):
+            color = [0] * 3
+            color[lineid] = 1
+            line = self.bullet_client.addUserDebugLine(position, position + length * orientation[:, lineid], color)
+            lines.append(line)
+
+        return lines
 
     def get_state(self):
         """
