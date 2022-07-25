@@ -62,7 +62,7 @@ class DHT_Transform(torch.nn.Module):
             self.a_upscale_dim = NeuralNetwork(1, network_structure)
             self.alpha_upscale_dim = NeuralNetwork(1, network_structure)
 
-    def forward(self, x):
+    def forward(self, x=None):
 
         if hasattr(self, "theta"):
             theta = self.theta.expand(len(x), 1)
@@ -132,15 +132,10 @@ class DHT_Model(torch.nn.Module):
 
         poses = []
 
-        for transformation, param, scaling in zip(self.transformations, params.split(self.active_joints_mask, 1), self.scaling.split(1)):
+        for transformation, param in zip(self.transformations, params.split(self.active_joints_mask, 1)):
             transformation = transformation(param)
 
-            scaling_transformation = self.scaling_mask * scaling
-            scaling_transformation.masked_fill_(~self.scaling_mask, 1.)
-
-            scaled_transformation = torch.einsum("bxy,xy->bxy", transformation, scaling_transformation)
-
-            pose = torch.einsum("bij,bjk->bik", pose, scaled_transformation)
+            pose = torch.einsum("bij,bjk->bik", pose, transformation)
 
             poses.append(pose)
 

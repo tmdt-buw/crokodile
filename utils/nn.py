@@ -1,7 +1,6 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from pytorch3d import transforms
 from torch.nn.functional import mse_loss
 
 """
@@ -16,6 +15,44 @@ from torch.nn.functional import mse_loss
             dropout
             out_activation: What activation should be used on the network output
     """
+
+
+def get_weight_matrices(link_positions_X, link_positions_Y, weight_matrix_exponent_p, norm=True):
+    """
+        Generate weights based on distances between relative positions of robot links
+
+        Params:
+            link_positions_{X, Y}: Positions of both robots in 3D space.
+            weight_matrix_exponent_p: Parameter used to shape the position weight matrix by emphasizing similarity.
+                weight = exp(-weight_matrix_exponent_p * distance)
+
+        Returns:
+            weight_matrix_XY_p: Weight matrix for positions
+            weight_matrix_XY_p: Weight matrix for orientations. All zeros except weight which corresponds to the end effectors.
+    """
+
+    link_positions_X = torch.cat((torch.zeros(1, 3), link_positions_X))
+    link_lenghts_X = torch.norm(link_positions_X[1:] - link_positions_X[:-1], p=2, dim=-1)
+    link_order_X = link_lenghts_X.cumsum(0)
+    link_order_X = link_order_X / link_order_X[-1]
+
+    link_positions_Y = torch.cat((torch.zeros(1, 3), link_positions_Y))
+    link_lenghts_Y = torch.norm(link_positions_Y[1:] - link_positions_Y[:-1], p=2, dim=-1)
+    link_order_Y = link_lenghts_Y.cumsum(0)
+    link_order_Y = link_order_Y / link_order_Y[-1]
+
+    weight_matrix_XY_p = torch.exp(
+        -weight_matrix_exponent_p * torch.cdist(link_order_X.unsqueeze(-1), link_order_Y.unsqueeze(-1)))
+    weight_matrix_XY_p = torch.nan_to_num(weight_matrix_XY_p, 1.)
+
+    weight_matrix_XY_o = torch.zeros_like(weight_matrix_XY_p)
+    weight_matrix_XY_o[-1, -1] = 1
+
+    if norm:
+        weight_matrix_XY_p /= weight_matrix_XY_p.sum()
+        weight_matrix_XY_o /= weight_matrix_XY_o.sum()
+
+    return weight_matrix_XY_p, weight_matrix_XY_o
 
 
 def create_network(in_dim, out_dim, network_width, network_depth, dropout, out_activation=None, **kwargs):
@@ -245,28 +282,7 @@ class Pos2Pose(nn.Module):
         return out
 
 
-class PoseLoss(torch.nn.Module):
-    def __init__(self, weight_orientation=1.):
-        super(PoseLoss, self).__init__()
-        self.weight_orientation = weight_orientation
-
-    def forward(self, output, target):
-        loss_position = mse_loss(output[:, -1, :3, -1], target[:, -1, :3, -1])
-        # todo: use angle between quaternions (screw)
-        q_output = transforms.matrix_to_quaternion(output[:, -1, :3, :3])
-        q_target = transforms.matrix_to_quaternion(target[:, -1, :3, :3])
-
-        q_diff = transforms.quaternion_multiply(q_output, transforms.quaternion_invert(q_target))
-
-        angles = 2 * torch.atan2(torch.norm(q_diff[:, 1:]), q_diff[:, 0])
-
-        loss_orientation = torch.mean(torch.abs(angles))
-        loss = loss_position + loss_orientation
-
-        return loss, loss_position, loss_orientation
-
-
-class KinematicChainLoss(PoseLoss):
+class KinematicChainLoss(torch.nn.Module):
     def __init__(self, weight_matrix_positions, weight_matrix_orientations, reduction=True, verbose_output=False,
                  eps=1e-7):
         super(KinematicChainLoss, self).__init__()
@@ -289,11 +305,11 @@ class KinematicChainLoss(PoseLoss):
 
         if len(X.shape) == 4:
             # S == 1
-            X.unsqueeze_(1)
+            X = X.unsqueeze(1)
 
         if len(Y.shape) == 4:
             # T == 1
-            Y.unsqueeze_(1)
+            Y = Y.unsqueeze(1)
 
         assert len(X.shape) == 5 and len(Y.shape) == 5
 
@@ -310,7 +326,7 @@ class KinematicChainLoss(PoseLoss):
         distance_positions = distance_positions.view(-1, s, m, t, n)
 
         # todo: make scaling a parameter
-        distance_positions = 1 - torch.exp(-10 * distance_positions)
+        # distance_positions = 1 - torch.exp(-10 * distance_positions)
 
         loss_positions = torch.einsum("bsmtn,mn->bst", distance_positions, self.weight_matrix_positions)
 
@@ -340,37 +356,6 @@ class KinematicChainLoss(PoseLoss):
             return loss, loss_positions, loss_orientations
         else:
             return loss
-
-
-class WeightedPoseLoss(PoseLoss):
-    def __init__(self, weight_position=1, weight_orientation=1):
-        super(WeightedPoseLoss, self).__init__()
-        self.weight_position = weight_position
-        self.weight_orientation = weight_orientation
-
-    def forward(self, output, target):
-        _, loss_position, loss_orientation = super(WeightedPoseLoss, self).forward(output, target)
-        loss = self.weight_position * loss_position + \
-               self.weight_orientation * loss_orientation
-
-        return loss, loss_position, loss_orientation
-
-
-class HomoscedasticLoss(PoseLoss):
-    """PAPER: Kendall, Alex, and Roberto Cipolla. "Geometric loss functions for camera pose regression with deep learning." Proceedings of the IEEE conference on computer vision and pattern recognition. 2017."""
-
-    def __init__(self):
-        super(HomoscedasticLoss, self).__init__()
-        self.s_x = torch.nn.Parameter(torch.tensor([0], dtype=torch.float32), requires_grad=True)
-        self.s_q = torch.nn.Parameter(torch.tensor([-3], dtype=torch.float32), requires_grad=True)
-
-    def forward(self, output, target):
-        _, loss_position, loss_orientation = super(HomoscedasticLoss, self).forward(output, target)
-
-        loss = loss_position * (-self.s_x).exp() + self.s_x + \
-               loss_orientation * (-self.s_q).exp() + self.s_q
-
-        return loss, loss_position, loss_orientation
 
 
 if __name__ == "__main__":

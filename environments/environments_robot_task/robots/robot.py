@@ -4,11 +4,13 @@ import time
 from collections import namedtuple
 from enum import Enum
 
+import torch
 import numpy as np
 import pybullet as p
 import pybullet_data as pd
 import pybullet_utils.bullet_client as bc
 from gym import spaces
+from models.dht import Rescale, DHT_Model
 
 Joint = namedtuple("Joint", ["id", "initial_position", "limits",
                              "max_velocity", "max_torque"])
@@ -111,9 +113,14 @@ class Robot:
             "hand": spaces.Box(-1., 1., shape=(1,), dtype=np.float64),
         })
 
+        joint_limits = torch.tensor([joint.limits for joint in self.joints_arm.values()])
+
+        self.state2angle = Rescale(-1, 1, joint_limits[:, 0], joint_limits[:, 1])
+        self.angle2state = Rescale(joint_limits[:, 0], joint_limits[:, 1], -1, 1)
+
         if dht_params is not None:
             self.dht_params = dht_params
-
+            self.dht_model = DHT_Model(dht_params)
 
     def __del__(self):
         self.bullet_client.removeBody(self.model_id)
@@ -122,13 +129,16 @@ class Robot:
     def joints(self):
         return self.joints_arm.values()
 
-    def normalize_joints(self, joint_positions):
-        return np.array([np.interp(joint_position, joint.limits, [-1, 1]) for joint, joint_position in
-                         zip(self.joints, joint_positions)])
+    # def normalize_joints(self, joint_positions):
+    #     return np.array([np.interp(joint_position, joint.limits, [-1, 1]) for joint, joint_position in
+    #                      zip(self.joints, joint_positions)])
+    #
+    # def unnormalize_joints(self, joint_positions):
+    #     return np.array([np.interp(joint_position, [-1, 1], joint.limits) for joint, joint_position in
+    #                      zip(self.joints, joint_positions)])
 
-    def unnormalize_joints(self, joint_positions):
-        return np.array([np.interp(joint_position, [-1, 1], joint.limits) for joint, joint_position in
-                         zip(self.joints, joint_positions)])
+    def forward_kinematics(self, angles):
+        return self.dht_model(angles)
 
     def calculate_inverse_kinematics(self, tcp_position, tcp_orientation, initial_pose=None, iters=1000):
 
