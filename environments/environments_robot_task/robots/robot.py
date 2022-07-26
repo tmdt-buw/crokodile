@@ -207,7 +207,7 @@ class Robot:
                                                      joint_ids,
                                                      p.POSITION_CONTROL,
                                                      targetPositions=target_positions,
-                                                     # forces=torques
+                                                     forces=torques
                                                      )
 
         if np.mean(action_hand) >= 0:

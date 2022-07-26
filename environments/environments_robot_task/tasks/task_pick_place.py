@@ -12,6 +12,8 @@ from utils.utils import unwind_dict_values
 sys.path.append(str(Path(__file__).resolve().parent))
 from task import Task
 
+import pybullet_data as pd
+p.setAdditionalSearchPath(pd.getDataPath())
 
 class TaskPickPlace(Task):
 

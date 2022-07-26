@@ -84,7 +84,7 @@ class EnvironmentRobotTask(Env):
 
         return observation_space
 
-    def reset(self, desired_observation=None):
+    def reset(self, desired_observation=None, force=False):
         """
         Reset the environment and return new state
         """
@@ -95,15 +95,16 @@ class EnvironmentRobotTask(Env):
         desired_state = desired_observation.get("state", {})
         desired_goal = desired_observation.get("goal", {})
 
-        state_robot = self.robot.reset(desired_state.get("robot"))
-        state_task, goal, info = self.task.reset(desired_state.get("task"), desired_goal, self.robot, state_robot)
+        state_robot = self.robot.reset(desired_state.get("robot"), force=force)
+        state_task, goal, info = self.task.reset(desired_state.get("task"), desired_goal, self.robot, state_robot,
+                                                 force=force)
 
         observation = {
             "state": {
                 'robot': state_robot,
                 'task': state_task
             },
-            "goal": goal["desired"]
+            "goal": goal
         }
 
         return observation
@@ -120,7 +121,7 @@ class EnvironmentRobotTask(Env):
                 'robot': state_robot,
                 'task': state_task
             },
-            "goal": goal["desired"]
+            "goal": goal
         }
 
         success = self.success_criterion(goal)
