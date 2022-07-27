@@ -63,7 +63,7 @@ class EnvironmentRobotTask(Env):
             'task': self.task.state_space,
         })
 
-        self.goal_space = self.task.goal_space["desired"]
+        self.goal_space = self.task.goal_space
 
         self.max_steps = self.task.max_steps
 
