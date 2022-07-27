@@ -37,12 +37,14 @@ class Expert:
 
         action = self.robot.action_space.sample()
 
+        orientation_object = [0,1,0,0]
+
         if np.linalg.norm(position_object - tcp_position) > .01:
             # move to object with open gripper
             action["hand"] = np.ones(1, dtype=np.float64)
 
             goal_position = position_object.copy()
-            goal_orientation = [1, 0, 0, 0]
+            goal_orientation = orientation_object
 
             if np.linalg.norm(position_object[:2] - tcp_position[:2]) > .03:
                 # align over object
@@ -55,12 +57,12 @@ class Expert:
                 goal_position = position_object_desired.copy()
                 if np.linalg.norm(position_object[:2] - position_object_desired[:2]) > .02:
                     goal_position[-1] += .05
-                    goal_orientation = [1, 0, 0, 0]
+                    goal_orientation = orientation_object
                 else:
                     goal_orientation = None
             else:
                 goal_position = position_object.copy()
-                goal_orientation = [1, 0, 0, 0]
+                goal_orientation = orientation_object
 
         # print(goal_position)
 

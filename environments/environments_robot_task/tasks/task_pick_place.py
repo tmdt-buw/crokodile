@@ -114,10 +114,10 @@ class TaskPickPlace(Task):
             self.tcp_object_constraint = None
 
         if desired_state is None:
-            desired_goal = {}
-
-        if desired_state is None:
             desired_state = {}
+
+        if desired_goal is None:
+            desired_goal = {}
 
         if desired_state.get("object_gripped", np.zeros(1)) > 0:
             self.tcp_object_constraint = self.bullet_client.createConstraint(self.object, -1,
@@ -182,11 +182,11 @@ class TaskPickPlace(Task):
         # print(state_robot["hand"], self.tcp_object_constraint is None)
 
         if state_robot is not None and robot is not None:
-            if state_robot["hand"] == robot.status_hand.OPEN:  # open
+            if state_robot["hand"] == robot.status_hand.OPEN.value:  # open
                 if self.tcp_object_constraint is not None:
                     self.bullet_client.removeConstraint(self.tcp_object_constraint)
                     self.tcp_object_constraint = None
-            elif state_robot["hand"] == robot.status_hand.CLOSING:  # closing
+            elif state_robot["hand"] == robot.status_hand.CLOSING.value:  # closing
                 assert self.tcp_object_constraint is None
 
                 position_object, _ = self.bullet_client.getBasePositionAndOrientation(self.object)

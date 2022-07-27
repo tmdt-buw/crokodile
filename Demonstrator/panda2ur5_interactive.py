@@ -23,7 +23,7 @@ env_A = get_env({
         "sim_time": .1,
     },
     "task_config": {
-        "name": "reach"
+        "name": "pick_place"
     },
     "bullet_client": p
 })
@@ -36,11 +36,11 @@ env_B = get_env({
         "name": "ur5",
         "scale": .1,
         "sim_time": .1,
-        "offset": (1,0,0)
+        "offset": (1, 0, 0)
     },
     "task_config": {
-        "name": "reach",
-        "offset": (1,0,0)
+        "name": "pick_place",
+        "offset": (1, 0, 0)
     },
     "bullet_client": p
 })
@@ -98,6 +98,7 @@ def map_state(state_A, init_state_B=None):
 
 
 bc_states_B, bc_actions_B = [], []
+multistep = False
 
 while len(bc_states_B) < 100:
     observation_A = env_A.reset()
@@ -134,26 +135,28 @@ while len(bc_states_B) < 100:
             print(state_B_)
             if state_B is not None:
                 action_B = deepcopy(action_A)
-
                 while not torch.isclose(state_B, state_B_, atol=1e-3).all():
                     action_B["arm"] = (state_B_ - state_B) / env_B.robot.scale
 
-                    if action_B not in env_B.action_space:
-                        trajectory_B = [state_B]
+                    if action_B in env_B.action_space:
+                        trajectory_B.append(state_B)
+                        trajectory_B.append(action_B)
 
-                    action_B["arm"] = torch.clip(action_B["arm"], -1, 1)
-                    trajectory_B.append(action_B)
+                        # observation_B, reward_B, done_B, info_B = env_B.step(action_B)
+                        # state_B = torch.Tensor(observation_B["state"]["robot"]["arm"]["joint_positions"])
+                    else:
+                        action_B["arm"] = torch.clip(action_B["arm"], -1, 1)
 
                     observation_B, reward_B, done_B, info_B = env_B.step(action_B)
                     state_B = torch.Tensor(observation_B["state"]["robot"]["arm"]["joint_positions"])
-                    trajectory_B.append(state_B)
+
+                    if not multistep:
+                        break
             else:
                 env_B.reset({"state": {"robot": {"arm": {"joint_positions": state_B_}}}, "goal": goal}, force=True)
                 trajectory_B = []
-
 
     print(len(trajectory_B))
 
     bc_states_B += trajectory_B[:-1:2]
     bc_actions_B += trajectory_B[1::2]
-
