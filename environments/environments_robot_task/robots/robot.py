@@ -4,6 +4,7 @@ import time
 from collections import namedtuple
 from enum import Enum
 
+import gym
 import torch
 import numpy as np
 import pybullet as p
@@ -101,10 +102,11 @@ class Robot:
         self.bullet_client.stepSimulation()
 
         # define spaces
-        self.action_space = spaces.Dict({
+        self.action_space_ = spaces.Dict({
             "arm": spaces.Box(-1., 1., shape=(len(self.joints),), dtype=np.float64),
             "hand": spaces.Box(-1., 1., shape=(1,), dtype=np.float64)
         })
+        self.action_space = gym.spaces.flatten_space(self.action_space_)
 
         self.state_space = spaces.Dict({
             "arm": spaces.Dict({
@@ -169,6 +171,8 @@ class Robot:
         :return: an observation
         """
         assert action in self.action_space, f"{self.action_space} {action}"
+
+        action = gym.spaces.unflatten(self.action_space_, action)
 
         action_arm = action["arm"]
         action_hand = action["hand"]

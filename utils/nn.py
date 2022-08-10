@@ -341,6 +341,7 @@ class KinematicChainLoss(torch.nn.Module):
         # calculate angle
         # add eps to make input to arccos (-1, 1) to avoid numerical instability
         # scale between 0 and 1
+        # todo is acos (0,pi) or (-pi,pi)?
         distance_orientations = torch.acos(
             torch.clamp((tr_R - 1) / (2 + self.eps), -1 + self.eps, 1 - self.eps)) / np.pi
         distance_orientations = distance_orientations.view(-1, s, m, t, n)

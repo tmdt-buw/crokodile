@@ -7,6 +7,7 @@ import wandb
 from ray.rllib.agents.ppo import PPOTrainer
 from ray.tune.registry import register_env
 import torch
+from tqdm import tqdm
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from environments.environment_robot_task import EnvironmentRobotTask, Callbacks
@@ -33,9 +34,9 @@ config = {
     "env": "robot_task",
     "env_config": {
         "robot_config": {
-            "name": "panda",
+            "name": "ur5",
             "sim_time": .1,
-            "scale": .1,
+            "scale": .5,
         },
         "task_config": {
             "name": "reach",
@@ -43,6 +44,8 @@ config = {
             "accuracy": .03,
         },
     },
+
+    # "disable_env_checking": True,
 
     # Parallelize environment rollouts.
     "num_workers": cpu_count(),
@@ -54,17 +57,22 @@ config = {
 max_epochs = 10_000
 
 wandb_config.update({
-    "group": "panda_reach_ppo",
+    "group": "ur5_reach_ppo",
+    "mode": "disabled",
 })
 
 # Train for n iterations and report results (mean episode rewards).
 with wandb.init(config=config, **wandb_config):
     agent = PPOTrainer(config)
 
-    for epoch in range(max_epochs):
+    pbar = tqdm(range(max_epochs))
+
+    for epoch in pbar:
         results = agent.train()
-        print(f"Epoch: {epoch} | avg. reward={results['episode_reward_mean']:.3f} | "
-              f"success ratio={results['custom_metrics']['success_mean']:.3f}")
+        pbar.set_description(f"avg. reward={results['episode_reward_mean']:.3f} | "
+                             f"success ratio={results['custom_metrics']['success_mean']:.3f}")
+        # print(f"Epoch: {epoch} | avg. reward={results['episode_reward_mean']:.3f} | "
+        #       f"success ratio={results['custom_metrics']['success_mean']:.3f}")
 
         wandb.log({
             'episode_reward_mean': results['episode_reward_mean'],

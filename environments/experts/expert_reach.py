@@ -1,3 +1,4 @@
+import gym.spaces
 import klampt
 import numpy as np
 from klampt.math import so3
@@ -28,7 +29,7 @@ class Expert:
         # current_positions_arm = [np.interp(position, [-1, 1], joint.limits) for joint, position in
         #                          zip(self.robot.joints, state["robot"]["arm"]['joint_positions'])]
 
-        action = self.robot.action_space.sample()
+        action = self.robot.action_space_.sample()
 
         ik.setRandomSeed(0)
         ik_conf = np.zeros_like(self.ik_model.getConfig())
@@ -56,5 +57,7 @@ class Expert:
         action["arm"] = delta_poses_arm / self.robot.scale
 
         action["arm"] = np.clip(action["arm"], -1., 1.).astype('float32')
+
+        action = gym.spaces.flatten(self.robot.action_space_, action)
 
         return action
