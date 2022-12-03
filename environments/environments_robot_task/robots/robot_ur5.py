@@ -82,12 +82,15 @@ class RobotUR5(Robot):
         # todo introduce friction
 
     def inverse_kinematics(self, T_0E):
+        if T_0E.dim() == 2:
+            T_0E = T_0E.unsqueeze(0)
+
         # T_6E is constant and known, so T_06 = T_0E * T_E6 can be derived
-        T_06 = torch.einsum("axy,byz->axz", T_0E, self.dht_model.transformations[6](torch.empty(1, 1)).inverse())
+        T_06 = torch.einsum("axy,oyz->axz", T_0E, self.dht_model.transformations[6](torch.empty(1, 1)).inverse())
 
         # theta 5 is still unknown, but the translation_5 is independent, so we can use an arbitrary angle
         # IMPORTANT: T_05_ is not the actual T_05, but only used to extract the P_5
-        T_05_ = torch.einsum("axy,byz->axz", T_06, self.dht_model.transformations[5](torch.empty(1, 1)).inverse())
+        T_05_ = torch.einsum("axy,oyz->axz", T_06, self.dht_model.transformations[5](torch.empty(1, 1)).inverse())
         P_5 = T_05_[:, :3, -1]
 
         # Theta 1
@@ -100,7 +103,8 @@ class RobotUR5(Robot):
         # Theta 5
         # 4 solutions
         theta_5_ = torch.acos(
-            (T_06[:, 0, -1] * theta_1.sin() - T_06[:, 1, -1] * theta_1.cos() - self.dht_params[3]["d"]) /
+            (torch.einsum("a,ax->ax", T_06[:, 0, -1], theta_1.sin()) -
+             torch.einsum("a,ax->ax", T_06[:, 1, -1], theta_1.cos()) - self.dht_params[3]["d"]) /
             self.dht_params[5]["d"])
 
         theta_5 = torch.concat((theta_5_, -theta_5_), axis=-1)
@@ -110,8 +114,8 @@ class RobotUR5(Robot):
         # 4 solutions
 
         theta_6 = torch.atan2(
-            (-T_06[:, 0, 1] * theta_1.sin() + T_06[:, 1, 1] * theta_1.cos()).repeat(1, 2) / theta_5.sin(),
-            (T_06[:, 0, 0] * theta_1.sin() - T_06[:, 1, 0] * theta_1.cos()).repeat(1, 2) / theta_5.sin())
+            (torch.einsum("a,ax->ax", -T_06[:, 0, 1], theta_1.sin()) + torch.einsum("a,ax->ax", T_06[:, 1, 1], theta_1.cos())).repeat(1, 2) / theta_5.sin(),
+            (torch.einsum("a,ax->ax", T_06[:, 0, 0], theta_1.sin()) - torch.einsum("a,ax->ax", T_06[:, 1, 0], theta_1.cos())).repeat(1, 2) / theta_5.sin())
 
         theta_6 = torch.where(theta_5.sin().bool(), theta_6, torch.zeros(1)) # if sin(theta_5) == 0, set to 0 (arbitrary value possible)
 
