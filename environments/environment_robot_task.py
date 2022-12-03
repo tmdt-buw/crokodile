@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Dict
 import numpy as np
 import os
+from copy import deepcopy
 
 import pybullet as p
 import pybullet_data as pd
@@ -26,6 +27,8 @@ class EnvironmentRobotTask(Env):
     """
 
     def __init__(self, config):
+        config = deepcopy(config)
+
         robot_config = config["robot_config"]
         task_config = config["task_config"]
         render = config.get("render", False)
