@@ -6,6 +6,7 @@ from multiprocessing import cpu_count
 from pathlib import Path
 import tempfile
 from ray.rllib.evaluation.sample_batch_builder import SampleBatchBuilder
+from ray.rllib.agents.marwil.bc import BCTrainer, BC_DEFAULT_CONFIG
 from ray.rllib.offline.json_writer import JsonWriter
 from ray.rllib.offline.json_reader import JsonReader
 
@@ -22,9 +23,14 @@ from config import wandb_config
 register_env("robot_task", lambda config: EnvironmentRobotTask(config))
 
 
-class Expert:
-    def __init__(self, config):
+class Apprentice:
+    def __init__(self, config, bc_config=None):
+        if bc_config is not None:
+            self.bc_trainer = BCTrainer(tr_config)
         self.trainer = PPOTrainer(config)
+
+    def pretrain(self, epochs):
+
 
     def train(self, max_epochs, success_threshold=1.):
 
@@ -116,6 +122,10 @@ class Expert:
 
                 state = next_state
 
+            batch_builder.add_values(
+                obs=state,
+            )
+
             if env.success_criterion(state['goal']):
                 demonstrations.append(batch_builder.build_and_reset())
                 pbar.update(1)
@@ -206,16 +216,16 @@ if __name__ == '__main__':
     #     expert.train(10_000, .9)
     #     expert.save_to_wandb()
 
-    # config.update({"num_workers": 1, "num_gpus": 1})
+    config.update({"num_workers": 1, "num_gpus": 1})
     #
-    # with wandb.init(config=config, **wandb_config):
-    #
-    #     expert = Expert(config)
-    #     expert.restore_from_wandb()
-    #     demonstrations = expert.generate_demonstrations(100, 1000)
-    #     expert.save_demonstrations_to_wandb(demonstrations)
+    with wandb.init(config=config, **wandb_config):
+
+        expert = Expert(config)
+        expert.restore_from_wandb()
+        demonstrations = expert.generate_demonstrations(10_000, 100_000)
+        expert.save_demonstrations_to_wandb(demonstrations)
 
     with wandb.init(config=config, **wandb_config):
-        for demonstration in Expert.load_demonstrations_from_wandb():
-            print(demonstration["obs"])
-            print(demonstration["actions"])
+        demonstration = next(Expert.load_demonstrations_from_wandb())
+        print(demonstration["obs"])
+        print(demonstration["actions"])

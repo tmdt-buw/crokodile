@@ -26,25 +26,28 @@ class Bridge:
         self.robotA = get_robot(config["robot_config_A"])
         self.robotB = get_robot(config["robot_config_B"])
 
-    def map_trajectories(self, trajectories):
-        for trajectory in trajectories:
-            yield self.map_trajectory(trajectory)
+    @staticmethod
+    def map_trajectories(robotA, robotB, trajectories):
+        for trajectoryA in trajectories:
+            try:
+                yield map_trajectory(robotA, robotB, trajectory)
+            except (AssertionError, nx.exception.NetworkXNoPath):
+                pass
 
-    def map_trajectory(self, trajectory):
-        print("#" * 80)
-
+    @staticmethod
+    def map_trajectory(robotA, robotB, trajectory):
         joint_positions_A = np.stack([obs["state"]["robot"]["arm"]["joint_positions"] for obs in trajectory["obs"]])
         joint_positions_A = torch.from_numpy(joint_positions_A).float()
 
-        joint_angles_A = self.robotA.state2angle(joint_positions_A)
-        tcp_poses = self.robotA.forward_kinematics(joint_angles_A)[:, -1]
-        joint_angles_B = self.robotB.inverse_kinematics(tcp_poses)
+        joint_angles_A = robotA.state2angle(joint_positions_A)
+        tcp_poses = robotA.forward_kinematics(joint_angles_A)[:, -1]
+        joint_angles_B = robotB.inverse_kinematics(tcp_poses)
 
         if joint_angles_B.isnan().any(-1).all(-1).any():
-            # at least one state from trajectory could not be mapped
-            return None
+            # todo: replace with custom exception
+            raise AssertionError("At least one state from trajectory could not be mapped.")
 
-        joint_positions_B = self.robotB.angle2state(joint_angles_B)
+        joint_positions_B = robotB.angle2state(joint_angles_B)
 
         G = nx.DiGraph()
         G.add_node("start")
@@ -56,10 +59,11 @@ class Bridge:
 
         # add edges from last states to end
         for nn, jp in enumerate(joint_positions_B[-1]):
-            G.add_edge(f"{len(joint_positions_B) - 1}/{nn}", "e", attr={"from": (len(joint_positions_B) - 1,nn), "to": None, "weight": 0.})
+            G.add_edge(f"{len(joint_positions_B) - 1}/{nn}", "e",
+                       attr={"from": (len(joint_positions_B) - 1, nn), "to": None, "weight": 0.})
 
         for nn, (jp, jp_next) in enumerate(zip(joint_positions_B[:-1], joint_positions_B[1:])):
-            actions = (jp_next.unsqueeze(0) - jp.unsqueeze(1)) / self.robotB.scale
+            actions = (jp_next.unsqueeze(0) - jp.unsqueeze(1)) / robotB.scale
 
             # todo integrate kinematic chain similarity
 
@@ -71,20 +75,22 @@ class Bridge:
             assert idx_valid[0].shape[0] > 0, "no valid actions found"
 
             for xx, yy in zip(*idx_valid):
-                G.add_edge(f"{nn}/{xx}", f"{nn+1}/{yy}", attr={"from": (nn,xx), "to": (nn+1,yy), "weight": actions_max[xx,yy]})
+                G.add_edge(f"{nn}/{xx}", f"{nn + 1}/{yy}",
+                           attr={"from": (nn, xx), "to": (nn + 1, yy), "weight": actions_max[xx, yy]})
 
         path = nx.dijkstra_path(G, "s", "e")[1:-1]
 
         idx = [int(node.split("/")[1]) for node in path]
         best_states = joint_positions_B[range(len(joint_positions_B)), idx]
+        best_actions = (best_states[1:] - best_states[:-1]) / robotB.scale
 
-        print(best_states)
+        for old_state, new_state in zip(trajectory["obs"], best_states):
+            old_state["state"]["robot"]["arm"]["joint_positions"] = new_state.cpu().detach().numpy()
 
-        ...
-        # np.stack([obs["state"]["robot"]["arm"]["joint_positions"] for obs in trajectory["obs"]])
+        for old_action, new_action in zip(trajectory["actions"], best_actions):
+            old_action["arm"] = new_action.cpu().detach().tolist()
 
-
-        return None
+        return trajectory
 
 
 if __name__ == "__main__":
@@ -111,4 +117,7 @@ if __name__ == "__main__":
 
         trajectories = Expert.load_demonstrations_from_wandb()
 
-        list(bridge.map_trajectories(trajectories))
+        mapped_demonstrations = bridge.map_trajectories(trajectories)
+
+        Expert.save_demonstrations_to_wandb(mapped_demonstrations, artifact_config={"name": "mapped_demonstrations",
+                                                                                    "type": "rllib.JSONWriter"})

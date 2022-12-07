@@ -1,6 +1,7 @@
-name: robot2robot_transfer
+name: r2r
 channels:
   - pytorch
+  - nvidia
   - conda-forge
 #  - defaults
 dependencies:
@@ -9,9 +10,12 @@ dependencies:
   - pip
   - wandb
   - pybullet
+  - python=3.8
+  - pytorch
+  - pytorch-cuda
 #  - ray-rllib
 #  - matplotlib
   - pip:
       - gym
       - "ray[rllib]"
-      - klampt
+#      - klampt

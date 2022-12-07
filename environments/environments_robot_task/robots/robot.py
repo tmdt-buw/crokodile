@@ -407,3 +407,6 @@ class Robot:
         state = clip_state(state, self.state_space)
 
         return state
+
+    def inverse_kinematics(self, tcp_poses):
+        raise NotImplementedError()

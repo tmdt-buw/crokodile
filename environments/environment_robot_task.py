@@ -11,7 +11,7 @@ import pybullet_data as pd
 import pybullet_utils.bullet_client as bc
 from gym import Env, spaces
 from ray.rllib import RolloutWorker, BaseEnv, Policy
-from ray.rllib.agents import DefaultCallbacks
+from ray.rllib.algorithms.callbacks import DefaultCallbacks
 from ray.rllib.evaluation import Episode
 
 sys.path.append(str(Path(__file__).resolve().parents[0]))
