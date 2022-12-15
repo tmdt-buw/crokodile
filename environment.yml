@@ -12,9 +12,7 @@ dependencies:
   - pybullet
   - python=3.8
   - pytorch
-  - pytorch-cuda
-#  - ray-rllib
-#  - matplotlib
+  - pytorch-cuda=11.7
   - pip:
       - gym
       - "ray[rllib]"

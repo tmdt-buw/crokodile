@@ -1,3 +1,5 @@
+import hashlib
+import json
 import logging
 import sys
 import os
@@ -81,23 +83,33 @@ class Stage:
     def save(self):
         raise NotImplementedError(f"save() not implemented for {self.__class__.__name__}")
 
+    @classmethod
+    def get_relevant_config(cls, config):
+        raise NotImplementedError(f"get_relevant_config() not implemented for {cls.__name__}")
+
+    @classmethod
+    def get_config_hash(cls, config):
+        return hashlib.sha256(json.dumps(cls.get_relevant_config(config), default=lambda o: "<not serializable>",
+                                         sort_keys=True, indent=2).encode("utf-8")).hexdigest()[:6]
+
 
 class Trainer(Stage):
     model = None
     model_cls = None
     model_config = None
+    run_id = None
 
     def __init__(self, config):
         super(Trainer, self).__init__(config)
 
     def save(self, path=None):
         if path is None and self.config["cache"]["mode"] == "wandb":
-            with tempfile.TemporaryDirectory() as dir:
-                self.save(dir)
+            with tempfile.TemporaryDirectory() as tmpdir, wandb.init(id=self.run_id, resume="must") as run:
+                self.save(tmpdir)
 
                 artifact = wandb.Artifact(name=self.__class__.__name__, type="Algorithm")
-                artifact.add_dir(dir)
-                wandb.log_artifact(artifact)
+                artifact.add_dir(tmpdir)
+                run.log_artifact(artifact)
         elif os.path.exists(path):
             self.model.save(path)
         else:
@@ -108,7 +120,8 @@ class Trainer(Stage):
 
     def load(self, path=None):
         if path is None and self.config["cache"]["mode"] == "wandb":
-            wandb_checkpoint_path = f"{wandb.run.entity}/{wandb.run.project}/{self.__class__.__name__}:latest"
+            wandb_config = self.config['wandb_config']
+            wandb_checkpoint_path = f"{wandb_config['entity']}/{wandb_config['project']}/{self.__class__.__name__}:latest"
 
             with tempfile.TemporaryDirectory() as tmpdir:
                 download_folder = wandb.use_artifact(wandb_checkpoint_path).download(tmpdir)
@@ -117,7 +130,7 @@ class Trainer(Stage):
 
                 self.load(checkpoint_folder)
         elif os.path.exists(path):
-            self.model_config.update({"num_workers": 1, "num_gpus": 0, })
+            self.model_config.update({"num_workers": 1, "num_gpus": 0})
             self.model = self.model_cls(self.model_config)
             self.model.restore(path)
         else:
@@ -129,38 +142,51 @@ class Trainer(Stage):
     def train(self, max_epochs: int, success_threshold: float = 1.):
         logging.info(f"Train agent for {max_epochs} epochs or until success ratio of {success_threshold} is achieved.")
 
-        pbar = tqdm(range(max_epochs))
+        with wandb.init(config=self.get_relevant_config(self.config), **self.config["wandb_config"],
+                        group=self.__class__.__name__,
+                        tags=[self.get_config_hash(self.config)]) as run:
+            self.run_id = run.id
+            pbar = tqdm(range(max_epochs))
 
-        for epoch in pbar:
-            results = self.model.train()
+            for epoch in pbar:
+                results = self.model.train()
 
-            if "evaluation" in results:
-                results = results["evaluation"]
+                if "evaluation" in results:
+                    results = results["evaluation"]
 
-            episode_reward_mean = results.get("episode_reward_mean", np.nan)
-            success_mean = results['custom_metrics'].get("success_mean", np.nan)
+                episode_reward_mean = results.get("episode_reward_mean", np.nan)
+                success_mean = results['custom_metrics'].get("success_mean", np.nan)
 
-            description = ""
+                description = ""
 
-            if np.isfinite(episode_reward_mean):
-                description += f"avg. reward={episode_reward_mean:.3f} | "
+                if np.isfinite(episode_reward_mean):
+                    description += f"avg. reward={episode_reward_mean:.3f} | "
 
-                wandb.log({
-                    f'{self.__class__.__name__}_episode_reward_mean': episode_reward_mean,
-                }, step=epoch)
-            if np.isfinite(success_mean):
-                description += f"success ratio={success_mean:.3f}"
+                    run.log({
+                        "episode_reward_mean": episode_reward_mean,
+                    }, step=epoch)
+                if np.isfinite(success_mean):
+                    description += f"success ratio={success_mean:.3f}"
 
-                wandb.log({
-                    f'{self.__class__.__name__}_episode_success_mean': success_mean,
-                }, step=epoch)
+                    run.log({
+                        "episode_success_mean": success_mean,
+                    }, step=epoch)
 
-            if description:
-                pbar.set_description(f"avg. reward={results['episode_reward_mean']:.3f} | "
-                                     f"success ratio={results['custom_metrics'].get('success_mean', np.nan):.3f}")
+                if description:
+                    pbar.set_description(f"avg. reward={results['episode_reward_mean']:.3f} | "
+                                         f"success ratio={results['custom_metrics'].get('success_mean', np.nan):.3f}")
 
-            if results['custom_metrics'].get("success_mean", -1) > success_threshold:
-                break
+                if results['custom_metrics'].get("success_mean", -1) > success_threshold:
+                    break
+
+    @classmethod
+    def get_relevant_config(cls, config):
+        return {
+            cls.__name__: {
+                "model": config[cls.__name__]["model"],
+                "train": config[cls.__name__]["train"]
+            }
+        }
 
 
 class Mapper(Stage):
@@ -168,15 +194,15 @@ class Mapper(Stage):
         super(Mapper, self).__init__(config)
 
     def __new__(cls, config):
-        robot_source_config = config["env_source"]["env_config"]["robot_config"]
-        robot_target_config = config["env_target"]["env_config"]["robot_config"]
+        robot_source_config = config["EnvSource"]["env_config"]["robot_config"]
+        robot_target_config = config["EnvTarget"]["env_config"]["robot_config"]
 
         if robot_source_config == robot_target_config:
             return super(Mapper, cls).__new__(cls)
-        elif config["mapper"]["type"] == "explicit":
+        elif config["Mapper"]["type"] == "explicit":
             return super(Mapper, cls).__new__(MapperExplicit)
         else:
-            raise ValueError(f"Invalid mapper type: {config['mapper']['type']}")
+            raise ValueError(f"Invalid mapper type: {config['Mapper']['type']}")
 
     def generate(self):
         # No need to generate anything
@@ -190,6 +216,18 @@ class Mapper(Stage):
         # No need to save anything
         pass
 
+    @classmethod
+    def get_relevant_config(cls, config):
+        config_ = {
+            cls.__name__: config.get(cls.__name__, {}),
+        }
+
+        obj = cls.__new__(cls, config)
+        if cls.__name__ != obj.__class__.__name__:
+            config_.update(obj.get_relevant_config(config))
+
+        return config_
+
     def map_trajectories(self, trajectories):
         return trajectories
 
@@ -202,12 +240,19 @@ class MapperExplicit(Mapper):
         super(MapperExplicit, self).__init__(config)
 
     def generate(self):
-        self.robot_source = get_robot(self.config["env_source"]["env_config"]["robot_config"])
-        self.robot_target = get_robot(self.config["env_target"]["env_config"]["robot_config"])
+        self.robot_source = get_robot(self.config["EnvSource"]["env_config"]["robot_config"])
+        self.robot_target = get_robot(self.config["EnvTarget"]["env_config"]["robot_config"])
 
     def load(self):
         # For the explicit mapper, there is nothing to load
         self.generate()
+
+    @classmethod
+    def get_relevant_config(cls, config):
+        return {
+            "EnvSource": {"env_config": {"robot_config": config["EnvSource"]["env_config"]["robot_config"]}},
+            "robot_target": {"env_config": {"robot_config": config["EnvTarget"]["env_config"]["robot_config"]}}
+        }
 
     def map_trajectories(self, trajectories):
         for trajectory in trajectories:
@@ -294,14 +339,18 @@ class MapperExplicit(Mapper):
 class Expert(Trainer):
     def __init__(self, config):
         self.model_cls = PPO
-        self.model_config = config["expert"]["model"]
-        self.model_config.update(config["env_source"])
+        self.model_config = config["Expert"]["model"]
+        self.model_config.update(config["EnvSource"])
 
         super(Expert, self).__init__(config)
 
     def generate(self):
         super(Expert, self).generate()
-        self.train(**self.config["expert"]["train"])
+        self.train(**self.config["Expert"]["train"])
+
+    @classmethod
+    def get_relevant_config(cls, config):
+        return super(Expert, cls).get_relevant_config(config)
 
 
 class Demonstrations(Stage):
@@ -312,7 +361,10 @@ class Demonstrations(Stage):
 
     def save(self, path=None):
         if path is None and self.config["cache"]["mode"] == "wandb":
-            with tempfile.TemporaryDirectory() as tmpdir:
+            with tempfile.TemporaryDirectory() as tmpdir, wandb.init(config=self.get_relevant_config(self.config),
+                                                                     **self.config["wandb_config"],
+                                                                     group=self.__class__.__name__,
+                                                                     tags=[self.get_config_hash(self.config)]) as run:
                 self.save(tmpdir)
 
                 artifact = wandb.Artifact(name=self.__class__.__name__, type="Iterable[SampleBatch]")
@@ -329,7 +381,8 @@ class Demonstrations(Stage):
     def load(self, path=None):
         if path is None and self.config["cache"]["mode"] == "wandb":
             with tempfile.TemporaryDirectory() as tmpdir:
-                wandb_checkpoint_path = f"{wandb.run.entity}/{wandb.run.project}/{self.__class__.__name__}:latest"
+                wandb_config = self.config['wandb_config']
+                wandb_checkpoint_path = f"{wandb_config['entity']}/{wandb_config['project']}/{self.__class__.__name__}:latest"
 
                 download_folder = wandb.use_artifact(wandb_checkpoint_path).download(tmpdir)
 
@@ -348,10 +401,11 @@ class DemonstrationsSource(Demonstrations):
         super(DemonstrationsSource, self).__init__(config)
 
     def generate(self):
-        config = self.config["demonstrations_source"]
+        config = self.config["DemonstrationsSource"]
 
         max_trials = config.get("max_trials")
         num_demonstrations = config["num_demonstrations"]
+        discard_unsuccessful = config.get("discard_unsuccessful", True)
 
         if max_trials and max_trials < num_demonstrations:
             logging.warning(f"max_trials ({max_trials}) is smaller than num_demonstrations ({num_demonstrations}). "
@@ -398,13 +452,17 @@ class DemonstrationsSource(Demonstrations):
                 obs=state,
             )
 
-            if env.success_criterion(state['goal']):
+            if env.success_criterion(state['goal']) or not discard_unsuccessful:
                 self.trajectories.append(batch_builder.build_and_reset())
                 pbar.update(1)
             else:
                 batch_builder.build_and_reset()
 
         logging.info(f"Generated {len(self.trajectories)} demonstrations.")
+
+    @classmethod
+    def get_relevant_config(cls, config):
+        return {cls.__name__: config[cls.__name__], **Expert.get_relevant_config(config)}
 
 
 class DemonstrationsTarget(Demonstrations):
@@ -423,7 +481,7 @@ class DemonstrationsTarget(Demonstrations):
         del demonstrations
         del mapper
 
-        env = EnvironmentRobotTask(self.config["env_target"]["env_config"])
+        env = EnvironmentRobotTask(self.config["EnvTarget"]["env_config"])
         preprocessor_obs = get_preprocessor(env.observation_space)(env.observation_space)
         preprocessor_actions = get_preprocessor(env.action_space)(env.action_space)
         del env
@@ -440,12 +498,19 @@ class DemonstrationsTarget(Demonstrations):
                      f"from {num_demonstrations} source demonstrations "
                      f"({len(self.trajectories) / num_demonstrations * 100:1f}%).")
 
+    @classmethod
+    def get_relevant_config(cls, config):
+        return {
+            **DemonstrationsSource.get_relevant_config(config),
+            **Mapper.get_relevant_config(config)
+        }
+
 
 class Pretrainer(Trainer):
     def __init__(self, config):
         self.model_cls = BC
-        self.model_config = config["pretrainer"]["model"]
-        self.model_config.update(config["env_target"])
+        self.model_config = config["Pretrainer"]["model"]
+        self.model_config.update(config["EnvTarget"])
 
         super(Pretrainer, self).__init__(config)
 
@@ -462,14 +527,21 @@ class Pretrainer(Trainer):
                 }})
 
             super(Pretrainer, self).generate()
-            self.train(**self.config["pretrainer"]["train"])
+            self.train(**self.config["Pretrainer"]["train"])
+
+    @classmethod
+    def get_relevant_config(cls, config):
+        return {
+            **super(Pretrainer, cls).get_relevant_config(config),
+            **DemonstrationsTarget.get_relevant_config(config)
+        }
 
 
 class Apprentice(Trainer):
     def __init__(self, config):
         self.model_cls = PPO
-        self.model_config = config["apprentice"]["model"]
-        self.model_config.update(config["env_target"])
+        self.model_config = config["Apprentice"]["model"]
+        self.model_config.update(config["EnvTarget"])
 
         super(Apprentice, self).__init__(config)
 
@@ -482,4 +554,11 @@ class Apprentice(Trainer):
 
         self.model.set_weights(weights)
         del weights
-        self.train(**self.config["apprentice"]["train"])
+        self.train(**self.config["Apprentice"]["train"])
+
+    @classmethod
+    def get_relevant_config(cls, config):
+        return {
+            **super(Apprentice, cls).get_relevant_config(config),
+            **Pretrainer.get_relevant_config(config)
+        }
