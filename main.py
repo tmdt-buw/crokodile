@@ -148,36 +148,49 @@ class Trainer(Stage):
             self.run_id = run.id
             pbar = tqdm(range(max_epochs))
 
-            for epoch in pbar:
-                results = self.model.train()
+            best_success_ratio = 0.
+            best_checkpoint = None
 
-                if "evaluation" in results:
-                    results = results["evaluation"]
+            with tempfile.TemporaryDirectory() as tmpdir:
 
-                episode_reward_mean = results.get("episode_reward_mean", np.nan)
-                success_mean = results['custom_metrics'].get("success_mean", np.nan)
+                for epoch in pbar:
+                    results = self.model.train()
 
-                description = ""
+                    if "evaluation" in results:
+                        results = results["evaluation"]
 
-                if np.isfinite(episode_reward_mean):
-                    description += f"avg. reward={episode_reward_mean:.3f} | "
+                    episode_reward_mean = results.get("episode_reward_mean", np.nan)
+                    success_mean = results['custom_metrics'].get("success_mean", np.nan)
 
-                    run.log({
-                        "episode_reward_mean": episode_reward_mean,
-                    }, step=epoch)
-                if np.isfinite(success_mean):
-                    description += f"success ratio={success_mean:.3f}"
+                    description = ""
 
-                    run.log({
-                        "episode_success_mean": success_mean,
-                    }, step=epoch)
+                    if np.isfinite(episode_reward_mean):
+                        description += f"avg. reward={episode_reward_mean:.3f} | "
 
-                if description:
-                    pbar.set_description(f"avg. reward={results['episode_reward_mean']:.3f} | "
-                                         f"success ratio={results['custom_metrics'].get('success_mean', np.nan):.3f}")
+                        run.log({
+                            "episode_reward_mean": episode_reward_mean,
+                        }, step=epoch)
+                    if np.isfinite(success_mean):
+                        description += f"success ratio={success_mean:.3f}"
 
-                if results['custom_metrics'].get("success_mean", -1) > success_threshold:
-                    break
+                        run.log({
+                            "episode_success_mean": success_mean,
+                        }, step=epoch)
+
+                        if success_mean > best_success_ratio:
+                            best_success_ratio = success_mean
+                            best_checkpoint = self.model.save_checkpoint(tmpdir)
+
+                    if description:
+                        pbar.set_description(description)
+
+                    if success_mean > success_threshold:
+                        logging.info(f"Success ratio of {success_mean} reached. Stopping training.")
+                        best_checkpoint = None
+                        break
+
+                if best_checkpoint is not None:
+                    self.model.load_checkpoint(best_checkpoint)
 
     @classmethod
     def get_relevant_config(cls, config):
