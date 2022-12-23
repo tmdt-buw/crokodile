@@ -436,85 +436,79 @@ class DemonstrationsSource(Demonstrations):
         trials = 0
         self.trajectories = []
 
-        orchestrator = Orchestrator(expert.workers.local_worker().env_context, 1)
-        success_criterion = orchestrator.success_criterion
+        with Orchestrator(expert.workers.local_worker().env_context, cpu_count()) as orchestrator:
+            success_criterion = orchestrator.success_criterion
 
-        responses = orchestrator.reset_all()
+            responses = orchestrator.reset_all()
 
-        eps_ids = {ii: ii for ii in range(cpu_count())}
+            eps_ids = {ii: ii for ii in range(cpu_count())}
 
-        batch_builder = defaultdict(SampleBatchBuilder)
+            batch_builder = defaultdict(SampleBatchBuilder)
 
-        pbar = tqdm(total=num_demonstrations)
+            pbar = tqdm(total=num_demonstrations)
 
-        while len(self.trajectories) < num_demonstrations:
-            requests = []
-            required_predictions = {}
+            while len(self.trajectories) < num_demonstrations:
+                requests = []
+                required_predictions = {}
 
-            for env_id, response in responses:
-                func, data = response
+                for env_id, response in responses:
+                    func, data = response
 
-                if func == "reset":
-                    if type(data) == AssertionError:
-                        logging.warning(f"Resetting the environment resulted in AssertionError: {data}.\n"
-                                        f"This might indicate issues, if applicable, in the choice of desired initial states."
-                                        f"The environment will be reset again."
-                                        )
-                        requests.append((env_id, "reset", None))
+                    if func == "reset":
+                        if type(data) == AssertionError:
+                            logging.warning(f"Resetting the environment resulted in AssertionError: {data}.\n"
+                                            f"This might indicate issues, if applicable, in the choice of desired initial states."
+                                            f"The environment will be reset again."
+                                            )
+                            requests.append((env_id, "reset", None))
+                        else:
+                            if max_trials:
+                                trials += 1
+                                pbar.set_description(f"trials={trials}/{max_trials} ({trials / max_trials * 100:.0f}%)")
+
+                            # Update eps_id
+                            eps_ids[env_id] = max(eps_ids.values()) + 1
+
+                            required_predictions[env_id] = data
+                    elif func == "step":
+                        state, reward, done, info = data
+
+                        success = success_criterion(state["goal"])
+                        done |= success
+
+                        batch_builder[env_id].add_values(dones=done)
+
+                        if done:
+                            if success or not discard_unsuccessful:
+                                batch_builder[env_id].add_values(obs=state)
+
+                                self.trajectories.append(batch_builder[env_id].build_and_reset())
+                                pbar.update(1)
+                            else:
+                                del batch_builder[env_id]
+
+                            requests.append((env_id, "reset", None))
+                        else:
+                            required_predictions[env_id] = state
                     else:
-                        if max_trials:
-                            trials += 1
-                            pbar.set_description(f"trials={trials}/{max_trials} ({trials / max_trials * 100:.0f}%)")
+                        raise NotImplementedError(
+                            f"Undefined behavior for {env_id} | {response}")
 
-                        # Update eps_id
-                        eps_ids[env_id] = max(eps_ids.values()) + 1
+                if required_predictions:
+                    # Generate predictions
+                    for env_id, action in expert.compute_actions(required_predictions).items():
+                        requests.append((env_id, "step", action))
 
                         batch_builder[env_id].add_values(
                             eps_id=eps_ids[env_id],
-                            obs=data,
+                            obs=required_predictions[env_id],
+                            actions=action,
                         )
 
-                        required_predictions[env_id] = data
-                elif func == "step":
-                    state, reward, done, info = data
+                responses = orchestrator.send_receive(requests)
 
-                    success = success_criterion(state["goal"])
-                    done |= success
-
-                    batch_builder[env_id].add_values(
-                        eps_id=len(self.trajectories),
-                        obs=state,
-                        dones=done,
-                    )
-
-                    if done:
-                        if success or not discard_unsuccessful:
-                            self.trajectories.append(batch_builder[env_id].build_and_reset())
-                            pbar.update(1)
-                        else:
-                            del batch_builder[env_id]
-
-                        requests.append((env_id, "reset", None))
-                    else:
-                        required_predictions[env_id] = state
-                else:
-                    raise NotImplementedError(
-                        f"Undefined behavior for {env_id} | {response}")
-
-            if required_predictions:
-                # Generate predictions
-                for env_id, action in expert.compute_actions(required_predictions).items():
-                    requests.append((env_id, "step", action))
-
-                    batch_builder[env_id].add_values(
-                        eps_id=eps_ids[env_id],
-                        actions=action,
-                    )
-
-            responses = orchestrator.send_receive(requests)
-
-            if max_trials and trials >= max_trials:
-                break
+                if max_trials and trials >= max_trials:
+                    break
 
         logging.info(f"Generated {len(self.trajectories)} demonstrations.")
 
