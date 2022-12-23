@@ -39,22 +39,30 @@ logging.getLogger().setLevel(logging.INFO)
 class Stage:
     def __init__(self, config):
         self.config = config
+        self.hash = self.get_config_hash(config)
 
         if "cache" not in config or config["cache"]["mode"] == "disabled":
             load = False
             save = False
         else:
-            load = config["cache"].get("load", True)
+            load = config["cache"].get("load", False)
             if type(load) is str:
                 load = self.__class__.__name__ == load
             elif type(load) is list:
                 load = self.__class__.__name__ in load
+            elif type(load) is dict:
+                load = load.get(self.__class__.__name__, False)
+                if type(load) is str:
+                    self.hash = load
+                    load = True
 
-            save = config["cache"].get("save", True)
+            save = config["cache"].get("save", False)
             if type(save) is str:
                 save = self.__class__.__name__ == save
             elif type(save) is list:
                 save = self.__class__.__name__ in save
+            elif type(save) is dict:
+                save = save.get(self.__class__.__name__, False)
 
             assert type(load) is bool and type(save) is bool, f"Invalid cache config: {config['cache']}"
 
@@ -94,7 +102,7 @@ class Stage:
     @classmethod
     def get_config_hash(cls, config):
         return hashlib.sha256(json.dumps(cls.get_relevant_config(config), default=lambda o: "<not serializable>",
-                                         sort_keys=True, indent=2).encode("utf-8")).hexdigest()[:6]
+                                         sort_keys=True).encode("utf-8")).hexdigest()[:6]
 
 
 class Trainer(Stage):
@@ -108,10 +116,12 @@ class Trainer(Stage):
 
     def save(self, path=None):
         if path is None and self.config["cache"]["mode"] == "wandb":
-            with tempfile.TemporaryDirectory() as tmpdir, wandb.init(id=self.run_id, resume="must") as run:
+            with tempfile.TemporaryDirectory() as tmpdir, wandb.init(id=self.run_id,
+                                                                     **self.config["wandb_config"],
+                                                                     resume="must") as run:
                 self.save(tmpdir)
 
-                artifact = wandb.Artifact(name=self.__class__.__name__, type="Algorithm")
+                artifact = wandb.Artifact(name=self.hash, type=self.__class__.__name__)
                 artifact.add_dir(tmpdir)
                 run.log_artifact(artifact)
         elif os.path.exists(path):
@@ -125,10 +135,11 @@ class Trainer(Stage):
     def load(self, path=None):
         if path is None and self.config["cache"]["mode"] == "wandb":
             wandb_config = self.config['wandb_config']
-            wandb_checkpoint_path = f"{wandb_config['entity']}/{wandb_config['project']}/{self.__class__.__name__}:latest"
+            wandb_checkpoint_path = f"{wandb_config['entity']}/{wandb_config['project']}/{self.hash}:latest"
+            logging.info(f"wandb artifact: {wandb_checkpoint_path}")
 
             with tempfile.TemporaryDirectory() as tmpdir:
-                download_folder = wandb.use_artifact(wandb_checkpoint_path).download(tmpdir)
+                download_folder = wandb.Api().artifact(wandb_checkpoint_path).download(tmpdir)
 
                 checkpoint_folder = os.path.join(download_folder, os.listdir(download_folder)[0])
 
@@ -144,11 +155,11 @@ class Trainer(Stage):
         self.model.get_weights()
 
     def train(self, max_epochs: int, success_threshold: float = 1.):
-        logging.info(f"Train agent for {max_epochs} epochs or until success ratio of {success_threshold} is achieved.")
+        logging.info(f"Train {self.__class__.__name__} for {max_epochs} epochs or until success ratio of {success_threshold} is achieved.")
 
         with wandb.init(config=self.get_relevant_config(self.config), **self.config["wandb_config"],
                         group=self.__class__.__name__,
-                        tags=[self.get_config_hash(self.config)]) as run:
+                        tags=[self.hash]) as run:
             self.run_id = run.id
             pbar = tqdm(range(max_epochs))
 
@@ -215,6 +226,7 @@ class Mapper(Stage):
         robot_target_config = config["EnvTarget"]["env_config"]["robot_config"]
 
         if robot_source_config == robot_target_config:
+            logging.warning("Same source and target robot. If you are not debugging, this is probably a mistake.")
             return super(Mapper, cls).__new__(cls)
         elif config["Mapper"]["type"] == "explicit":
             return super(Mapper, cls).__new__(MapperExplicit)
@@ -381,10 +393,10 @@ class Demonstrations(Stage):
             with tempfile.TemporaryDirectory() as tmpdir, wandb.init(config=self.get_relevant_config(self.config),
                                                                      **self.config["wandb_config"],
                                                                      group=self.__class__.__name__,
-                                                                     tags=[self.get_config_hash(self.config)]) as run:
+                                                                     tags=[self.hash]):
                 self.save(tmpdir)
 
-                artifact = wandb.Artifact(name=self.__class__.__name__, type="Iterable[SampleBatch]")
+                artifact = wandb.Artifact(name=self.hash, type=self.__class__.__name__)
                 artifact.add_dir(tmpdir)
                 wandb.log_artifact(artifact)
         elif os.path.exists(path):
@@ -399,9 +411,9 @@ class Demonstrations(Stage):
         if path is None and self.config["cache"]["mode"] == "wandb":
             with tempfile.TemporaryDirectory() as tmpdir:
                 wandb_config = self.config['wandb_config']
-                wandb_checkpoint_path = f"{wandb_config['entity']}/{wandb_config['project']}/{self.__class__.__name__}:latest"
+                wandb_checkpoint_path = f"{wandb_config['entity']}/{wandb_config['project']}/{self.hash}:latest"
 
-                download_folder = wandb.use_artifact(wandb_checkpoint_path).download(tmpdir)
+                download_folder = wandb.Api().artifact(wandb_checkpoint_path).download(tmpdir)
 
                 checkpoint_file = [f for f in os.listdir(download_folder) if re.match("^output.*\.json$", f)][0]
                 checkpoint_path = os.path.join(download_folder, checkpoint_file)
