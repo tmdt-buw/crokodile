@@ -9,6 +9,8 @@ from copy import deepcopy
 from pathlib import Path
 import tempfile
 import numpy as np
+from collections import defaultdict
+from multiprocessing import cpu_count
 
 import networkx as nx
 from ray.rllib.algorithms.marwil import MARWIL
@@ -23,6 +25,8 @@ from ray.rllib.algorithms.ppo import PPO
 from ray.tune.registry import register_env
 import torch
 from tqdm import tqdm
+
+from orchestrator import Orchestrator
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from environments.environment_robot_task import EnvironmentRobotTask, Callbacks
@@ -432,44 +436,85 @@ class DemonstrationsSource(Demonstrations):
         trials = 0
         self.trajectories = []
 
-        env = expert.env_creator(expert.workers.local_worker().env_context)
-        batch_builder = SampleBatchBuilder()
+        orchestrator = Orchestrator(expert.workers.local_worker().env_context, 1)
+        success_criterion = orchestrator.success_criterion
+
+        responses = orchestrator.reset_all()
+
+        eps_ids = {ii: ii for ii in range(cpu_count())}
+
+        batch_builder = defaultdict(SampleBatchBuilder)
 
         pbar = tqdm(total=num_demonstrations)
 
         while len(self.trajectories) < num_demonstrations:
-            if max_trials:
-                if trials >= max_trials:
-                    break
-                trials += 1
-                pbar.set_description(f"trials={trials}/{max_trials} ({trials / max_trials * 100:.0f}%)")
+            requests = []
+            required_predictions = {}
 
-            state = env.reset()
+            for env_id, response in responses:
+                func, data = response
 
-            done = False
+                if func == "reset":
+                    if type(data) == AssertionError:
+                        logging.warning(f"Resetting the environment resulted in AssertionError: {data}.\n"
+                                        f"This might indicate issues, if applicable, in the choice of desired initial states."
+                                        f"The environment will be reset again."
+                                        )
+                        requests.append((env_id, "reset", None))
+                    else:
+                        if max_trials:
+                            trials += 1
+                            pbar.set_description(f"trials={trials}/{max_trials} ({trials / max_trials * 100:.0f}%)")
 
-            while not done:
-                action = expert.compute_single_action(state)
-                next_state, reward, done, info = env.step(action)
+                        # Update eps_id
+                        eps_ids[env_id] = max(eps_ids.values()) + 1
 
-                batch_builder.add_values(
-                    eps_id=len(self.trajectories),
-                    obs=state,
-                    actions=action,
-                    dones=done,
-                )
+                        batch_builder[env_id].add_values(
+                            eps_id=eps_ids[env_id],
+                            obs=data,
+                        )
 
-                state = next_state
+                        required_predictions[env_id] = data
+                elif func == "step":
+                    state, reward, done, info = data
 
-            batch_builder.add_values(
-                obs=state,
-            )
+                    success = success_criterion(state["goal"])
+                    done |= success
 
-            if env.success_criterion(state['goal']) or not discard_unsuccessful:
-                self.trajectories.append(batch_builder.build_and_reset())
-                pbar.update(1)
-            else:
-                batch_builder.build_and_reset()
+                    batch_builder[env_id].add_values(
+                        eps_id=len(self.trajectories),
+                        obs=state,
+                        dones=done,
+                    )
+
+                    if done:
+                        if success or not discard_unsuccessful:
+                            self.trajectories.append(batch_builder[env_id].build_and_reset())
+                            pbar.update(1)
+                        else:
+                            del batch_builder[env_id]
+
+                        requests.append((env_id, "reset", None))
+                    else:
+                        required_predictions[env_id] = state
+                else:
+                    raise NotImplementedError(
+                        f"Undefined behavior for {env_id} | {response}")
+
+            if required_predictions:
+                # Generate predictions
+                for env_id, action in expert.compute_actions(required_predictions).items():
+                    requests.append((env_id, "step", action))
+
+                    batch_builder[env_id].add_values(
+                        eps_id=eps_ids[env_id],
+                        actions=action,
+                    )
+
+            responses = orchestrator.send_receive(requests)
+
+            if max_trials and trials >= max_trials:
+                break
 
         logging.info(f"Generated {len(self.trajectories)} demonstrations.")
 
