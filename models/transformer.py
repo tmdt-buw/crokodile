@@ -7,8 +7,18 @@ from torch.nn import Transformer
 
 
 class Seq2SeqTransformer(nn.Module):
-    def __init__(self, max_len=10, num_domains=2, d_model=64, nhead=8, num_encoder_layers=6,
-                 num_decoder_layers=6, dim_feedforward=2048, dropout=0.1, **kwargs):
+    def __init__(
+        self,
+        max_len=10,
+        num_domains=2,
+        d_model=64,
+        nhead=8,
+        num_encoder_layers=6,
+        num_decoder_layers=6,
+        dim_feedforward=2048,
+        dropout=0.1,
+        **kwargs,
+    ):
         super(Seq2SeqTransformer, self).__init__()
 
         self.max_len = max_len
@@ -22,18 +32,25 @@ class Seq2SeqTransformer(nn.Module):
 
         self.encoder_sot = nn.Conv1d(3, d_model, 1)
 
-        self.transformer = Transformer(d_model, nhead, num_encoder_layers, num_decoder_layers, dim_feedforward,
-                                       dropout, batch_first=True)
+        self.transformer = Transformer(
+            d_model, nhead, num_encoder_layers, num_decoder_layers, dim_feedforward, dropout, batch_first=True
+        )
 
         self.decoder_out = nn.Conv1d(d_model, 1, 1)
 
-        tgt_mask = (torch.tril(torch.ones((max_len, max_len))) == 0)
-        self.register_buffer('tgt_mask', tgt_mask)
+        tgt_mask = torch.tril(torch.ones((max_len, max_len))) == 0
+        self.register_buffer("tgt_mask", tgt_mask)
 
-    def forward(self, src: Tensor, sot: Tensor, tgt: Tensor,
-                src_domain: Tensor, tgt_domain: Tensor,
-                src_key_padding_mask: Tensor = None, tgt_key_padding_mask: Tensor = None,
-                ):
+    def forward(
+        self,
+        src: Tensor,
+        sot: Tensor,
+        tgt: Tensor,
+        src_domain: Tensor,
+        tgt_domain: Tensor,
+        src_key_padding_mask: Tensor = None,
+        tgt_key_padding_mask: Tensor = None,
+    ):
         src = src.unsqueeze(1)
         tgt = tgt.unsqueeze(1)
         sot = sot.unsqueeze(-1)
@@ -75,12 +92,14 @@ class Seq2SeqTransformer(nn.Module):
 
         # sot_tgt_emb = self.positional_encoding(sot_tgt_enc)
 
-        out_emb = self.transformer(src_emb, sot_tgt,
-                                   src_key_padding_mask=src_key_padding_mask,
-                                   tgt_key_padding_mask=tgt_key_padding_mask,
-                                   tgt_mask=self.tgt_mask,
-                                   # memory_key_padding_mask=self.memory_padding_mask
-                                   )
+        out_emb = self.transformer(
+            src_emb,
+            sot_tgt,
+            src_key_padding_mask=src_key_padding_mask,
+            tgt_key_padding_mask=tgt_key_padding_mask,
+            tgt_mask=self.tgt_mask,
+            # memory_key_padding_mask=self.memory_padding_mask
+        )
         out_emb = out_emb.swapdims(1, 2)  # NLE -> NEL
 
         out = self.decoder_out(out_emb)  # NEL -> NCL
@@ -91,25 +110,25 @@ class Seq2SeqTransformer(nn.Module):
 
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, max_len=5, dropout=0.):
+    def __init__(self, d_model, max_len=5, dropout=0.0):
         super(PositionalEncoding, self).__init__()
 
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
         pos_div_term = position * div_term
-        pe[:, 0::2] = torch.sin(pos_div_term[:, :(d_model + 2) // 2])
-        pe[:, 1::2] = torch.cos(pos_div_term[:, :d_model // 2])
+        pe[:, 0::2] = torch.sin(pos_div_term[:, : (d_model + 2) // 2])
+        pe[:, 1::2] = torch.cos(pos_div_term[:, : d_model // 2])
         pe = pe.unsqueeze(0)
 
         self.dropout = nn.Dropout(dropout)
-        self.register_buffer('pe', pe)
+        self.register_buffer("pe", pe)
 
     def forward(self, x):
-        return self.dropout(x + self.pe[:, :x.size(1), :])
+        return self.dropout(x + self.pe[:, : x.size(1), :])
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
 
     model = Seq2SeqTransformer(6, 7)
 

@@ -37,13 +37,7 @@ from config import wandb_config
 
 
 class LitStateMapper(pl.LightningModule):
-    def __init__(self,
-                 data_file_A, data_file_B,
-                 state_mapper_config={},
-                 batch_size=32,
-                 num_workers=1,
-                 **kwargs
-                 ):
+    def __init__(self, data_file_A, data_file_B, state_mapper_config={}, batch_size=32, num_workers=1, **kwargs):
         super(LitStateMapper, self).__init__()
 
         self.save_hyperparameters()
@@ -58,22 +52,18 @@ class LitStateMapper(pl.LightningModule):
         self.dht_model_B = get_dht_model(data_B["dht_params"], data_B["joint_limits"])
 
         self.state_mapper_AB = create_network(
-            in_dim=data_A["states_train"].shape[1],
-            out_dim=data_B["states_train"].shape[1],
-            **state_mapper_config
+            in_dim=data_A["states_train"].shape[1], out_dim=data_B["states_train"].shape[1], **state_mapper_config
         )
 
         self.state_mapper_BA = create_network(
-            in_dim=data_B["states_train"].shape[1],
-            out_dim=data_A["states_train"].shape[1],
-            **state_mapper_config
+            in_dim=data_B["states_train"].shape[1], out_dim=data_A["states_train"].shape[1], **state_mapper_config
         )
 
         link_positions_A = self.dht_model_A(torch.zeros((1, *data_A["states_train"].shape[1:])))[0, :, :3, -1]
         link_positions_B = self.dht_model_B(torch.zeros((1, *data_B["states_train"].shape[1:])))[0, :, :3, -1]
 
         weight_matrix_AB_p = torch.zeros(link_positions_A.shape[0], link_positions_B.shape[0])
-        weight_matrix_AB_p[-1, -1] = 1.
+        weight_matrix_AB_p[-1, -1] = 1.0
         weight_matrix_AB_o = torch.zeros(link_positions_A.shape[0], link_positions_B.shape[0])
         # weight_matrix_AB_o[-1, -1] = 1.
 
@@ -132,8 +122,9 @@ class LitStateMapper(pl.LightningModule):
         link_order_Y = link_order_Y / link_order_Y[-1]
 
         weight_matrix_XY_p = torch.exp(
-            -weight_matrix_exponent_p * torch.cdist(link_order_X.unsqueeze(-1), link_order_Y.unsqueeze(-1)))
-        weight_matrix_XY_p = torch.nan_to_num(weight_matrix_XY_p, 1.)
+            -weight_matrix_exponent_p * torch.cdist(link_order_X.unsqueeze(-1), link_order_Y.unsqueeze(-1))
+        )
+        weight_matrix_XY_p = torch.nan_to_num(weight_matrix_XY_p, 1.0)
 
         weight_matrix_XY_o = torch.zeros(len(link_positions_X), len(link_positions_Y))
         weight_matrix_XY_o[-1, -1] = 1
@@ -152,9 +143,13 @@ class LitStateMapper(pl.LightningModule):
         actions_train = data["actions_train"]
         next_states_train = data["next_states_train"]
 
-        dataloader_train = DataLoader(TensorDataset(states_train, actions_train, next_states_train),
-                                      batch_size=self.hparams.batch_size, num_workers=self.hparams.num_workers,
-                                      shuffle=True, pin_memory=True)
+        dataloader_train = DataLoader(
+            TensorDataset(states_train, actions_train, next_states_train),
+            batch_size=self.hparams.batch_size,
+            num_workers=self.hparams.num_workers,
+            shuffle=True,
+            pin_memory=True,
+        )
 
         return dataloader_train
 
@@ -166,9 +161,12 @@ class LitStateMapper(pl.LightningModule):
         actions_validation = data["actions_test"]
         next_states_validation = data["next_states_test"]
 
-        dataloader_validation = DataLoader(TensorDataset(states_validation, actions_validation, next_states_validation),
-                                           batch_size=self.hparams.batch_size, num_workers=self.hparams.num_workers,
-                                           pin_memory=True)
+        dataloader_validation = DataLoader(
+            TensorDataset(states_validation, actions_validation, next_states_validation),
+            batch_size=self.hparams.batch_size,
+            num_workers=self.hparams.num_workers,
+            pin_memory=True,
+        )
 
         return dataloader_validation
 
@@ -215,8 +213,9 @@ class LitStateMapper(pl.LightningModule):
         Determine loss of action mapper on batch.
     """
 
-    def loss_action_mapper(self, batch, action_mapper_XY, state_mapper_XY, dht_model_X, dht_model_Y, transition_model_Y,
-                           loss_fn):
+    def loss_action_mapper(
+        self, batch, action_mapper_XY, state_mapper_XY, dht_model_X, dht_model_Y, transition_model_Y, loss_fn
+    ):
         states_X, actions_X, next_states_X = batch
 
         states_Y = state_mapper_XY(states_X)
@@ -244,7 +243,12 @@ class LitStateMapper(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
 
-        optimizer_state_mapper_AB, optimizer_state_mapper_BA, optimizer_dht_model_A, optimizer_dht_model_B = self.optimizers()
+        (
+            optimizer_state_mapper_AB,
+            optimizer_state_mapper_BA,
+            optimizer_dht_model_A,
+            optimizer_dht_model_B,
+        ) = self.optimizers()
 
         optimizer_state_mapper_AB.zero_grad()
         optimizer_dht_model_A.zero_grad()
@@ -316,24 +320,20 @@ class LitStateMapper(pl.LightningModule):
 
     def step(self, batch, batch_idx, optimizer_idx, log_prefix=""):
         if optimizer_idx == 0:
-            loss_state_mapper, loss_state_mapper_p, loss_state_mapper_o = self.loss_state_mapper(batch["A"],
-                                                                                                 self.state_mapper_AB,
-                                                                                                 self.dht_model_A,
-                                                                                                 self.dht_model_B,
-                                                                                                 self.loss_fn_kinematics_AB)
-            self.log(log_prefix + 'loss_state_mapper_AB', loss_state_mapper, on_step=False, on_epoch=True)
-            self.log(log_prefix + 'loss_state_mapper_AB_p', loss_state_mapper_p, on_step=False, on_epoch=True)
-            self.log(log_prefix + 'loss_state_mapper_AB_o', loss_state_mapper_o, on_step=False, on_epoch=True)
+            loss_state_mapper, loss_state_mapper_p, loss_state_mapper_o = self.loss_state_mapper(
+                batch["A"], self.state_mapper_AB, self.dht_model_A, self.dht_model_B, self.loss_fn_kinematics_AB
+            )
+            self.log(log_prefix + "loss_state_mapper_AB", loss_state_mapper, on_step=False, on_epoch=True)
+            self.log(log_prefix + "loss_state_mapper_AB_p", loss_state_mapper_p, on_step=False, on_epoch=True)
+            self.log(log_prefix + "loss_state_mapper_AB_o", loss_state_mapper_o, on_step=False, on_epoch=True)
             return loss_state_mapper
         elif optimizer_idx == 1:
-            loss_state_mapper, loss_state_mapper_p, loss_state_mapper_o = self.loss_state_mapper(batch["B"],
-                                                                                                 self.state_mapper_BA,
-                                                                                                 self.dht_model_B,
-                                                                                                 self.dht_model_A,
-                                                                                                 self.loss_fn_kinematics_BA)
-            self.log(log_prefix + 'loss_state_mapper_BA', loss_state_mapper, on_step=False, on_epoch=True)
-            self.log(log_prefix + 'loss_state_mapper_BA_p', loss_state_mapper_p, on_step=False, on_epoch=True)
-            self.log(log_prefix + 'loss_state_mapper_BA_o', loss_state_mapper_o, on_step=False, on_epoch=True)
+            loss_state_mapper, loss_state_mapper_p, loss_state_mapper_o = self.loss_state_mapper(
+                batch["B"], self.state_mapper_BA, self.dht_model_B, self.dht_model_A, self.loss_fn_kinematics_BA
+            )
+            self.log(log_prefix + "loss_state_mapper_BA", loss_state_mapper, on_step=False, on_epoch=True)
+            self.log(log_prefix + "loss_state_mapper_BA_p", loss_state_mapper_p, on_step=False, on_epoch=True)
+            self.log(log_prefix + "loss_state_mapper_BA_o", loss_state_mapper_o, on_step=False, on_epoch=True)
             return loss_state_mapper
 
     """
@@ -342,14 +342,18 @@ class LitStateMapper(pl.LightningModule):
     """
 
     def configure_optimizers(self):
-        optimizer_state_mapper_AB = torch.optim.Adam(self.state_mapper_AB.parameters(),
-                                                     lr=self.hparams.state_mapper_config.get("lr", 3e-4))
-        optimizer_state_mapper_BA = torch.optim.Adam(self.state_mapper_BA.parameters(),
-                                                     lr=self.hparams.state_mapper_config.get("lr", 3e-4))
-        optimizer_dht_model_A = torch.optim.Adam(self.dht_model_A[1].scaling,
-                                                 lr=self.hparams.state_mapper_config.get("lr", 3e-4))
-        optimizer_dht_model_B = torch.optim.Adam(self.dht_model_B[1].scaling,
-                                                 lr=self.hparams.state_mapper_config.get("lr", 3e-4))
+        optimizer_state_mapper_AB = torch.optim.Adam(
+            self.state_mapper_AB.parameters(), lr=self.hparams.state_mapper_config.get("lr", 3e-4)
+        )
+        optimizer_state_mapper_BA = torch.optim.Adam(
+            self.state_mapper_BA.parameters(), lr=self.hparams.state_mapper_config.get("lr", 3e-4)
+        )
+        optimizer_dht_model_A = torch.optim.Adam(
+            self.dht_model_A[1].scaling, lr=self.hparams.state_mapper_config.get("lr", 3e-4)
+        )
+        optimizer_dht_model_B = torch.optim.Adam(
+            self.dht_model_B[1].scaling, lr=self.hparams.state_mapper_config.get("lr", 3e-4)
+        )
 
         # scheduler_state_mapper_AB = {"scheduler": ReduceLROnPlateau(optimizer_state_mapper_AB),
         #                              "monitor": "validation_loss_state_mapper_AB",
@@ -365,7 +369,7 @@ class LitStateMapper(pl.LightningModule):
         # [scheduler_state_mapper_AB, scheduler_state_mapper_BA]
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     mapper = LitStateMapper
 
     domain_mapper = LitStateMapper(

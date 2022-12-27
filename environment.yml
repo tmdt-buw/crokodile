@@ -16,4 +16,3 @@ dependencies:
   - pip:
       - gym
       - "ray[rllib]"
-#      - klampt

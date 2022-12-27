@@ -49,8 +49,8 @@ class TaskReach(Task):
 
         self.random = RandomState(int.from_bytes(os.urandom(4), byteorder="little"))
 
-#    def __del__(self):
-#        self.bullet_client.removeBody(self.target)
+    #    def __del__(self):
+    #        self.bullet_client.removeBody(self.target)
 
     def success_criterion(self, goal, *args, **kwargs):
         goal_achieved = unwind_dict_values(goal["achieved"])

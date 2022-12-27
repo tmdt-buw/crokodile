@@ -74,6 +74,7 @@ def compute_softdtw_cuda(D, gamma, bandwidth, max_i, max_j, n_passes, R):
         # Wait for other threads in this block
         cuda.syncthreads()
 
+
 # ----------------------------------------------------------------------------------------------------------------------
 @cuda.jit
 def compute_softdtw_backward_cuda(D, R, inv_gamma, bandwidth, max_i, max_j, n_passes, E):
@@ -110,6 +111,7 @@ def compute_softdtw_backward_cuda(D, R, inv_gamma, bandwidth, max_i, max_j, n_pa
         # Wait for other threads in this block
         cuda.syncthreads()
 
+
 # ----------------------------------------------------------------------------------------------------------------------
 class _SoftDTWCUDA(Function):
     """
@@ -137,9 +139,9 @@ class _SoftDTWCUDA(Function):
         # Run the CUDA kernel.
         # Set CUDA's grid size to be equal to the batch size (every CUDA block processes one sample pair)
         # Set the CUDA block size to be equal to the length of the longer sequence (equal to the size of the largest diagonal)
-        compute_softdtw_cuda[B, threads_per_block](cuda.as_cuda_array(D.detach()),
-                                                   gamma.item(), bandwidth.item(), N, M, n_passes,
-                                                   cuda.as_cuda_array(R))
+        compute_softdtw_cuda[B, threads_per_block](
+            cuda.as_cuda_array(D.detach()), gamma.item(), bandwidth.item(), N, M, n_passes, cuda.as_cuda_array(R)
+        )
         ctx.save_for_backward(D, R.clone(), gamma, bandwidth)
         return R[:, -2, -2]
 
@@ -156,7 +158,7 @@ class _SoftDTWCUDA(Function):
         n_passes = 2 * threads_per_block - 1
 
         D_ = torch.zeros((B, N + 2, M + 2), dtype=dtype, device=dev)
-        D_[:, 1:N + 1, 1:M + 1] = D
+        D_[:, 1 : N + 1, 1 : M + 1] = D
 
         R[:, :, -1] = -math.inf
         R[:, -1, :] = -math.inf
@@ -166,11 +168,17 @@ class _SoftDTWCUDA(Function):
         E[:, -1, -1] = 1
 
         # Grid and block sizes are set same as done above for the forward() call
-        compute_softdtw_backward_cuda[B, threads_per_block](cuda.as_cuda_array(D_),
-                                                            cuda.as_cuda_array(R),
-                                                            1.0 / gamma.item(), bandwidth.item(), N, M, n_passes,
-                                                            cuda.as_cuda_array(E))
-        E = E[:, 1:N + 1, 1:M + 1]
+        compute_softdtw_backward_cuda[B, threads_per_block](
+            cuda.as_cuda_array(D_),
+            cuda.as_cuda_array(R),
+            1.0 / gamma.item(),
+            bandwidth.item(),
+            N,
+            M,
+            n_passes,
+            cuda.as_cuda_array(E),
+        )
+        E = E[:, 1 : N + 1, 1 : M + 1]
         return grad_output.view(-1, 1, 1).expand_as(E) * E, None, None
 
 
@@ -201,9 +209,10 @@ def compute_softdtw(D, gamma, bandwidth):
                 r2 = -R[b, i, j - 1] / gamma
                 rmax = max(max(r0, r1), r2)
                 rsum = np.exp(r0 - rmax) + np.exp(r1 - rmax) + np.exp(r2 - rmax)
-                softmin = - gamma * (np.log(rsum) + rmax)
+                softmin = -gamma * (np.log(rsum) + rmax)
                 R[b, i, j] = D[b, i - 1, j - 1] + softmin
     return R
+
 
 # ----------------------------------------------------------------------------------------------------------------------
 @jit(nopython=True)
@@ -213,7 +222,7 @@ def compute_softdtw_backward(D_, R, gamma, bandwidth):
     M = D_.shape[2]
     D = np.zeros((B, N + 2, M + 2))
     E = np.zeros((B, N + 2, M + 2))
-    D[:, 1:N + 1, 1:M + 1] = D_
+    D[:, 1 : N + 1, 1 : M + 1] = D_
     E[:, -1, -1] = 1
     R[:, :, -1] = -np.inf
     R[:, -1, :] = -np.inf
@@ -236,7 +245,8 @@ def compute_softdtw_backward(D_, R, gamma, bandwidth):
                 b = np.exp(b0)
                 c = np.exp(c0)
                 E[k, i, j] = E[k, i + 1, j] * a + E[k, i, j + 1] * b + E[k, i + 1, j + 1] * c
-    return E[:, 1:N + 1, 1:M + 1]
+    return E[:, 1 : N + 1, 1 : M + 1]
+
 
 # ----------------------------------------------------------------------------------------------------------------------
 class _SoftDTW(Function):
@@ -268,6 +278,7 @@ class _SoftDTW(Function):
         b_ = bandwidth.item()
         E = torch.Tensor(compute_softdtw_backward(D_, R_, g_, b_)).to(dev).type(dtype)
         return grad_output.view(-1, 1, 1).expand_as(E) * E, None, None
+
 
 # ----------------------------------------------------------------------------------------------------------------------
 class SoftDTW(torch.nn.Module):
@@ -310,8 +321,10 @@ class SoftDTW(torch.nn.Module):
         use_cuda = x.is_cuda
 
         if use_cuda and (lx > 1024 or ly > 1024):  # We should be able to spawn enough threads in CUDA
-                print("SoftDTW: Cannot use CUDA because the sequence length > 1024 (the maximum block size supported by CUDA)")
-                use_cuda = False
+            print(
+                "SoftDTW: Cannot use CUDA because the sequence length > 1024 (the maximum block size supported by CUDA)"
+            )
+            use_cuda = False
 
         # Finally, return the correct function
         return _SoftDTWCUDA.apply if use_cuda else _SoftDTW.apply
@@ -351,6 +364,7 @@ class SoftDTW(torch.nn.Module):
             D_xy = self.dist_func(X, Y)
             return func_dtw(D_xy, self.gamma, self.bandwidth)
 
+
 # ----------------------------------------------------------------------------------------------------------------------
 def timed_run(a, b, sdtw):
     """
@@ -378,13 +392,18 @@ def timed_run(a, b, sdtw):
 
     return t, forward, grads
 
+
 # ----------------------------------------------------------------------------------------------------------------------
 def profile(batch_size, seq_len_a, seq_len_b, dims, tol_backward):
     sdtw = SoftDTW(False, gamma=1.0, normalize=False)
     sdtw_cuda = SoftDTW(True, gamma=1.0, normalize=False)
     n_iters = 6
 
-    print("Profiling forward() + backward() times for batch_size={}, seq_len_a={}, seq_len_b={}, dims={}...".format(batch_size, seq_len_a, seq_len_b, dims))
+    print(
+        "Profiling forward() + backward() times for batch_size={}, seq_len_a={}, seq_len_b={}, dims={}...".format(
+            batch_size, seq_len_a, seq_len_b, dims
+        )
+    )
 
     times_cpu = []
     times_gpu = []
@@ -405,7 +424,9 @@ def profile(batch_size, seq_len_a, seq_len_b, dims, tol_backward):
         assert torch.allclose(forward_cpu, forward_gpu.cpu())
         assert torch.allclose(backward_cpu, backward_gpu.cpu(), atol=tol_backward)
 
-        if i > 0:  # Ignore the first time we run, in case this is a cold start (because timings are off at a cold start of the script)
+        if (
+            i > 0
+        ):  # Ignore the first time we run, in case this is a cold start (because timings are off at a cold start of the script)
             times_cpu += [t_cpu]
             times_gpu += [t_gpu]
 
@@ -416,6 +437,7 @@ def profile(batch_size, seq_len_a, seq_len_b, dims, tol_backward):
     print("\tGPU:     ", avg_gpu)
     print("\tSpeedup: ", avg_cpu / avg_gpu)
     print()
+
 
 # ----------------------------------------------------------------------------------------------------------------------
 if __name__ == "__main__":

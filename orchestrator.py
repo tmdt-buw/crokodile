@@ -8,7 +8,6 @@ from environments.environment_robot_task import EnvironmentRobotTask
 
 
 class Orchestrator:
-
     def __init__(self, env_config, number_processes, number_threads=1):
 
         self.pipes = {}
@@ -40,9 +39,7 @@ class Orchestrator:
                 pipes_process.append(pipe_process)
                 locks_process.append(lock)
 
-            p = mp.Process(target=self.run_process,
-                           args=(env_config, pipes_process, locks_process),
-                           daemon=True)
+            p = mp.Process(target=self.run_process, args=(env_config, pipes_process, locks_process), daemon=True)
             p.start()
 
     def __len__(self):
@@ -70,9 +67,7 @@ class Orchestrator:
             threads = []
 
             for pipe, lock in zip(pipes, locks):
-                thread = threading.Thread(target=self.run,
-                                          args=(deepcopy(env_config), pipe, lock),
-                                          daemon=True)
+                thread = threading.Thread(target=self.run, args=(deepcopy(env_config), pipe, lock), daemon=True)
                 thread.start()
                 threads.append(thread)
 
@@ -140,8 +135,8 @@ class Orchestrator:
         return responses
 
     def reset_all(self, initial_state_generator=None):
-        """ Resets all environment. Blocks until all environments are reset.
-            If a desired_state is not possible, caller has to resubmit desired_state"""
+        """Resets all environment. Blocks until all environments are reset.
+        If a desired_state is not possible, caller has to resubmit desired_state"""
 
         # send ping with token to flush the pipes
         token = random.getrandbits(10)
@@ -150,13 +145,13 @@ class Orchestrator:
         if initial_state_generator is None:
             desired_states = [None] * len(self.pipes)
         else:
-            desired_states = [initial_state_generator(env_id=env_id) for env_id
-                              in self.pipes.keys()]
+            desired_states = [initial_state_generator(env_id=env_id) for env_id in self.pipes.keys()]
 
         assert len(desired_states) == len(self.pipes)
 
-        self.send([(env_id, "reset", desired_state) for env_id, desired_state
-                   in zip(self.pipes.keys(), desired_states)])
+        self.send(
+            [(env_id, "reset", desired_state) for env_id, desired_state in zip(self.pipes.keys(), desired_states)]
+        )
 
         responses = []
 

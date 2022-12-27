@@ -15,35 +15,25 @@ p.setRealTimeSimulation(True)
 #     "scale": .1,
 #     "sim_time": .1,
 # }, p)
-env_A = get_env({
-    "name": "robot-task",
-    "robot_config": {
-        "name": "panda",
-        "scale": .1,
-        "sim_time": .1,
-    },
-    "task_config": {
-        "name": "pick_place"
-    },
-    "bullet_client": p
-})
+env_A = get_env(
+    {
+        "name": "robot-task",
+        "robot_config": {"name": "panda", "scale": 0.1, "sim_time": 0.1},
+        "task_config": {"name": "pick_place"},
+        "bullet_client": p,
+    }
+)
 
 expert_A = get_expert(env_A)
 
-env_B = get_env({
-    "name": "robot-task",
-    "robot_config": {
-        "name": "ur5",
-        "scale": .1,
-        "sim_time": .1,
-        "offset": (1, 0, 0)
-    },
-    "task_config": {
-        "name": "pick_place",
-        "offset": (1, 0, 0)
-    },
-    "bullet_client": p
-})
+env_B = get_env(
+    {
+        "name": "robot-task",
+        "robot_config": {"name": "ur5", "scale": 0.1, "sim_time": 0.1, "offset": (1, 0, 0)},
+        "task_config": {"name": "pick_place", "offset": (1, 0, 0)},
+        "bullet_client": p,
+    }
+)
 
 angle2pi = Sawtooth(-torch.pi, torch.pi, -torch.pi, torch.pi)
 
@@ -53,10 +43,12 @@ for link_A in range(p.getNumJoints(env_A.robot.model_id)):
 for link_B in range(p.getNumJoints(env_B.robot.model_id)):
     p.setCollisionFilterGroupMask(env_B.robot.model_id, link_B, 0, 0)
 
-link_positions_A = env_A.robot.forward_kinematics(torch.Tensor([env_A.robot.get_state()["arm"]["joint_positions"]]))[0,
-                   :, :3, -1]
-link_positions_B = env_B.robot.forward_kinematics(torch.Tensor([env_B.robot.get_state()["arm"]["joint_positions"]]))[0,
-                   :, :3, -1]
+link_positions_A = env_A.robot.forward_kinematics(torch.Tensor([env_A.robot.get_state()["arm"]["joint_positions"]]))[
+    0, :, :3, -1
+]
+link_positions_B = env_B.robot.forward_kinematics(torch.Tensor([env_B.robot.get_state()["arm"]["joint_positions"]]))[
+    0, :, :3, -1
+]
 
 weight_matrix_p, weight_matrix_o = get_weight_matrices(link_positions_A, link_positions_B, 100)
 
@@ -111,8 +103,7 @@ while len(bc_states_B) < 100:
     state_B = map_state(state_A)
 
     if state_B is not None:
-        env_B.reset({"state": {"robot": {"arm": {"joint_positions": state_B}}},
-                     "goal": goal}, force=True)
+        env_B.reset({"state": {"robot": {"arm": {"joint_positions": state_B}}}, "goal": goal}, force=True)
     else:
         env_B.reset({"goal": goal}, force=True)
 

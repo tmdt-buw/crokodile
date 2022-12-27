@@ -19,9 +19,8 @@ from torch.nn.functional import mse_loss
 
 
 def create_network(self, in_dim, out_dim, network_width, network_depth, dropout, out_activation=None):
-    network_structure = [('linear', network_width), ('relu', None),
-                         ('dropout', dropout)] * network_depth
-    network_structure.append(('linear', out_dim))
+    network_structure = [("linear", network_width), ("relu", None), ("dropout", dropout)] * network_depth
+    network_structure.append(("linear", out_dim))
 
     if out_activation:
         network_structure.append((out_activation, None))
@@ -30,7 +29,6 @@ def create_network(self, in_dim, out_dim, network_width, network_depth, dropout,
 
 
 class Clamp(torch.nn.Module):
-
     def __init__(self, min, max):
         super(Clamp, self).__init__()
         self.min = min
@@ -56,9 +54,7 @@ class NeuralNetwork(nn.Module):
 
         assert type(in_dim) == int
 
-        self.operators = nn.ModuleList([
-            nn.Flatten()
-        ])
+        self.operators = nn.ModuleList([nn.Flatten()])
 
         current_dim = in_dim
 
@@ -67,32 +63,32 @@ class NeuralNetwork(nn.Module):
             self.operators.append(module)
 
     def get_module(self, name, params, current_dim):
-        if name == 'res_block':
+        if name == "res_block":
             module = ResBlock(current_dim, params)
-        elif name == 'linear':
+        elif name == "linear":
             module = nn.Linear(current_dim, params)
             current_dim = params
-        elif name == 'relu':
-            assert params is None, 'No argument for ReLU please'
+        elif name == "relu":
+            assert params is None, "No argument for ReLU please"
             module = nn.ReLU()
         elif name == "leaky_relu":
-            assert params is None, 'No argument for ReLU please'
+            assert params is None, "No argument for ReLU please"
             module = nn.LeakyReLU()
-        elif name == 'selu':
-            assert params is None, 'No argument for SeLU please'
+        elif name == "selu":
+            assert params is None, "No argument for SeLU please"
             module = nn.SELU()
-        elif name == 'tanh':
-            assert params is None, 'No argument for Tanh please'
+        elif name == "tanh":
+            assert params is None, "No argument for Tanh please"
             module = nn.Tanh()
-        elif name == 'gelu':
-            assert params is None, 'No argument for GreLU please'
+        elif name == "gelu":
+            assert params is None, "No argument for GreLU please"
             module = nn.GELU()
-        elif name == 'dropout':
+        elif name == "dropout":
             module = nn.Dropout(params)
-        elif name == 'batchnorm':
+        elif name == "batchnorm":
             module = nn.BatchNorm1d(current_dim)
         else:
-            raise NotImplementedError(f'{name} not known')
+            raise NotImplementedError(f"{name} not known")
 
         return module, current_dim
 

@@ -13,8 +13,8 @@ from collections import defaultdict
 from multiprocessing import cpu_count
 
 import networkx as nx
-from ray.rllib.algorithms.marwil import MARWIL
 from ray.rllib.algorithms.bc import BC
+from ray.rllib.algorithms.marwil import MARWIL
 from ray.rllib.evaluation.sample_batch_builder import SampleBatchBuilder
 from ray.rllib.offline.json_writer import JsonWriter
 from ray.rllib.offline.json_reader import JsonReader
@@ -27,9 +27,7 @@ import torch
 from tqdm import tqdm
 
 from orchestrator import Orchestrator
-
-sys.path.append(str(Path(__file__).resolve().parents[1]))
-from environments.environment_robot_task import EnvironmentRobotTask, Callbacks
+from environments.environment_robot_task import EnvironmentRobotTask
 from environments.environments_robot_task.robots import get_robot
 
 register_env("robot_task", lambda config: EnvironmentRobotTask(config))
@@ -101,8 +99,11 @@ class Stage:
 
     @classmethod
     def get_config_hash(cls, config):
-        return hashlib.sha256(json.dumps(cls.get_relevant_config(config), default=lambda o: "<not serializable>",
-                                         sort_keys=True).encode("utf-8")).hexdigest()[:6]
+        return hashlib.sha256(
+            json.dumps(cls.get_relevant_config(config), default=lambda o: "<not serializable>", sort_keys=True).encode(
+                "utf-8"
+            )
+        ).hexdigest()[:6]
 
 
 class Trainer(Stage):
@@ -116,9 +117,9 @@ class Trainer(Stage):
 
     def save(self, path=None):
         if path is None and self.config["cache"]["mode"] == "wandb":
-            with tempfile.TemporaryDirectory() as tmpdir, wandb.init(id=self.run_id,
-                                                                     **self.config["wandb_config"],
-                                                                     resume="must") as run:
+            with tempfile.TemporaryDirectory() as tmpdir, wandb.init(
+                id=self.run_id, **self.config["wandb_config"], resume="must"
+            ) as run:
                 self.save(tmpdir)
 
                 artifact = wandb.Artifact(name=self.hash, type=self.__class__.__name__)
@@ -134,7 +135,7 @@ class Trainer(Stage):
 
     def load(self, path=None):
         if path is None and self.config["cache"]["mode"] == "wandb":
-            wandb_config = self.config['wandb_config']
+            wandb_config = self.config["wandb_config"]
             wandb_checkpoint_path = f"{wandb_config['entity']}/{wandb_config['project']}/{self.hash}:latest"
             logging.info(f"wandb artifact: {wandb_checkpoint_path}")
 
@@ -154,67 +155,62 @@ class Trainer(Stage):
     def get_weights(self):
         self.model.get_weights()
 
-    def train(self, max_epochs: int, success_threshold: float = 1.):
-        logging.info(f"Train {self.__class__.__name__} for {max_epochs} epochs or until success ratio of {success_threshold} is achieved.")
+    def train(self, max_epochs: int, success_threshold: float = 1.0):
+        logging.info(
+            f"Train {self.__class__.__name__} for {max_epochs} epochs or until success ratio of {success_threshold} is achieved."
+        )
 
-        with wandb.init(config=self.get_relevant_config(self.config), **self.config["wandb_config"],
-                        group=self.__class__.__name__,
-                        tags=[self.hash]) as run:
+        with wandb.init(
+            config=self.get_relevant_config(self.config),
+            **self.config["wandb_config"],
+            group=self.__class__.__name__,
+            tags=[self.hash],
+        ) as run:
             self.run_id = run.id
             pbar = tqdm(range(max_epochs))
 
-            best_success_ratio = 0.
-            best_checkpoint = None
+            for epoch in pbar:
+                results = self.model.train()
 
-            with tempfile.TemporaryDirectory() as tmpdir:
+                if "evaluation" in results:
+                    results = results["evaluation"]
 
-                for epoch in pbar:
-                    results = self.model.train()
+                episode_reward_mean = results.get("episode_reward_mean", np.nan)
+                success_mean = results["custom_metrics"].get("success_mean", np.nan)
 
-                    if "evaluation" in results:
-                        results = results["evaluation"]
+                description = ""
 
-                    episode_reward_mean = results.get("episode_reward_mean", np.nan)
-                    success_mean = results['custom_metrics'].get("success_mean", np.nan)
+                if np.isfinite(episode_reward_mean):
+                    description += f"avg. reward={episode_reward_mean:.3f} | "
 
-                    description = ""
-
-                    if np.isfinite(episode_reward_mean):
-                        description += f"avg. reward={episode_reward_mean:.3f} | "
-
-                        run.log({
+                    run.log(
+                        {
                             "episode_reward_mean": episode_reward_mean,
-                        }, step=epoch)
-                    if np.isfinite(success_mean):
-                        description += f"success ratio={success_mean:.3f}"
+                        },
+                        step=epoch,
+                    )
+                if np.isfinite(success_mean):
+                    description += f"success ratio={success_mean:.3f}"
 
-                        run.log({
+                    run.log(
+                        {
                             "episode_success_mean": success_mean,
-                        }, step=epoch)
+                        },
+                        step=epoch,
+                    )
 
-                        if success_mean > best_success_ratio:
-                            best_success_ratio = success_mean
-                            best_checkpoint = self.model.save_checkpoint(tmpdir)
+                if description:
+                    pbar.set_description(
+                        f"avg. reward={results['episode_reward_mean']:.3f} | "
+                        f"success ratio={results['custom_metrics'].get('success_mean', np.nan):.3f}"
+                    )
 
-                    if description:
-                        pbar.set_description(description)
-
-                    if success_mean > success_threshold:
-                        logging.info(f"Success ratio of {success_mean} reached. Stopping training.")
-                        best_checkpoint = None
-                        break
-
-                if best_checkpoint is not None:
-                    self.model.load_checkpoint(best_checkpoint)
+                if results["custom_metrics"].get("success_mean", -1) > success_threshold:
+                    break
 
     @classmethod
     def get_relevant_config(cls, config):
-        return {
-            cls.__name__: {
-                "model": config[cls.__name__]["model"],
-                "train": config[cls.__name__]["train"]
-            }
-        }
+        return {cls.__name__: {"model": config[cls.__name__]["model"], "train": config[cls.__name__]["train"]}}
 
 
 class Mapper(Stage):
@@ -280,7 +276,7 @@ class MapperExplicit(Mapper):
     def get_relevant_config(cls, config):
         return {
             "EnvSource": {"env_config": {"robot_config": config["EnvSource"]["env_config"]["robot_config"]}},
-            "robot_target": {"env_config": {"robot_config": config["EnvTarget"]["env_config"]["robot_config"]}}
+            "robot_target": {"env_config": {"robot_config": config["EnvTarget"]["env_config"]["robot_config"]}},
         }
 
     def map_trajectories(self, trajectories):
@@ -293,7 +289,8 @@ class MapperExplicit(Mapper):
     def map_trajectory(self, trajectory):
 
         joint_positions_source = np.stack(
-            [obs["state"]["robot"]["arm"]["joint_positions"] for obs in trajectory["obs"]])
+            [obs["state"]["robot"]["arm"]["joint_positions"] for obs in trajectory["obs"]]
+        )
         joint_positions_source = torch.from_numpy(joint_positions_source).float()
 
         joint_angles_source = self.robot_source.state2angle(joint_positions_source)
@@ -307,8 +304,9 @@ class MapperExplicit(Mapper):
         while (mask := joint_angles_target > self.robot_target.joint_limits[:, 1]).any():
             joint_angles_target[mask] -= 2 * np.pi
 
-        mask = (joint_angles_target < self.robot_target.joint_limits[:, 0]) & \
-               (joint_angles_target > self.robot_target.joint_limits[:, 1])
+        mask = (joint_angles_target < self.robot_target.joint_limits[:, 0]) & (
+            joint_angles_target > self.robot_target.joint_limits[:, 1]
+        )
 
         # invalidate states which are outside of joint limits
         joint_angles_target[mask] = torch.nan
@@ -325,12 +323,15 @@ class MapperExplicit(Mapper):
 
         # add edges from start to first states
         for nn, jp in enumerate(joint_positions_target[0]):
-            G.add_edge("s", f"0/{nn}", attr={"from": -1, "to": None, "weight": 0.})
+            G.add_edge("s", f"0/{nn}", attr={"from": -1, "to": None, "weight": 0.0})
 
         # add edges from last states to end
         for nn, jp in enumerate(joint_positions_target[-1]):
-            G.add_edge(f"{len(joint_positions_target) - 1}/{nn}", "e",
-                       attr={"from": (len(joint_positions_target) - 1, nn), "to": None, "weight": 0.})
+            G.add_edge(
+                f"{len(joint_positions_target) - 1}/{nn}",
+                "e",
+                attr={"from": (len(joint_positions_target) - 1, nn), "to": None, "weight": 0.0},
+            )
 
         for nn, (jp, jp_next) in enumerate(zip(joint_positions_target[:-1], joint_positions_target[1:])):
             actions = (jp_next.unsqueeze(0) - jp.unsqueeze(1)) / self.robot_target.scale
@@ -340,13 +341,16 @@ class MapperExplicit(Mapper):
             # select only valid edges
             actions_max = torch.nan_to_num(actions, torch.inf).abs().max(-1)[0]
             # idx_valid = torch.where(actions_max.isfinite())
-            idx_valid = torch.where(actions_max < 1.)
+            idx_valid = torch.where(actions_max < 1.0)
 
             assert idx_valid[0].shape[0] > 0, "no valid actions found"
 
             for xx, yy in zip(*idx_valid):
-                G.add_edge(f"{nn}/{xx}", f"{nn + 1}/{yy}",
-                           attr={"from": (nn, xx), "to": (nn + 1, yy), "weight": actions_max[xx, yy]})
+                G.add_edge(
+                    f"{nn}/{xx}",
+                    f"{nn + 1}/{yy}",
+                    attr={"from": (nn, xx), "to": (nn + 1, yy), "weight": actions_max[xx, yy]},
+                )
 
         path = nx.dijkstra_path(G, "s", "e")[1:-1]
 
@@ -390,10 +394,12 @@ class Demonstrations(Stage):
 
     def save(self, path=None):
         if path is None and self.config["cache"]["mode"] == "wandb":
-            with tempfile.TemporaryDirectory() as tmpdir, wandb.init(config=self.get_relevant_config(self.config),
-                                                                     **self.config["wandb_config"],
-                                                                     group=self.__class__.__name__,
-                                                                     tags=[self.hash]):
+            with tempfile.TemporaryDirectory() as tmpdir, wandb.init(
+                config=self.get_relevant_config(self.config),
+                **self.config["wandb_config"],
+                group=self.__class__.__name__,
+                tags=[self.hash],
+            ):
                 self.save(tmpdir)
 
                 artifact = wandb.Artifact(name=self.hash, type=self.__class__.__name__)
@@ -410,7 +416,7 @@ class Demonstrations(Stage):
     def load(self, path=None):
         if path is None and self.config["cache"]["mode"] == "wandb":
             with tempfile.TemporaryDirectory() as tmpdir:
-                wandb_config = self.config['wandb_config']
+                wandb_config = self.config["wandb_config"]
                 wandb_checkpoint_path = f"{wandb_config['entity']}/{wandb_config['project']}/{self.hash}:latest"
 
                 download_folder = wandb.Api().artifact(wandb_checkpoint_path).download(tmpdir)
@@ -437,8 +443,10 @@ class DemonstrationsSource(Demonstrations):
         discard_unsuccessful = config.get("discard_unsuccessful", True)
 
         if max_trials and max_trials < num_demonstrations:
-            logging.warning(f"max_trials ({max_trials}) is smaller than num_demonstrations ({num_demonstrations}). "
-                            f"Setting max_trials to num_demonstrations.")
+            logging.warning(
+                f"max_trials ({max_trials}) is smaller than num_demonstrations ({num_demonstrations}). "
+                f"Setting max_trials to num_demonstrations."
+            )
             max_trials = num_demonstrations
 
         expert = Expert(self.config).model
@@ -468,10 +476,11 @@ class DemonstrationsSource(Demonstrations):
 
                     if func == "reset":
                         if type(data) == AssertionError:
-                            logging.warning(f"Resetting the environment resulted in AssertionError: {data}.\n"
-                                            f"This might indicate issues, if applicable, in the choice of desired initial states."
-                                            f"The environment will be reset again."
-                                            )
+                            logging.warning(
+                                f"Resetting the environment resulted in AssertionError: {data}.\n"
+                                f"This might indicate issues, if applicable, in the choice of desired initial states."
+                                f"The environment will be reset again."
+                            )
                             requests.append((env_id, "reset", None))
                         else:
                             if max_trials:
@@ -488,7 +497,7 @@ class DemonstrationsSource(Demonstrations):
                         success = success_criterion(state["goal"])
                         done |= success
 
-                        batch_builder[env_id].add_values(dones=done)
+                        batch_builder[env_id].add_values(dones=done, rewards=reward)
 
                         if done:
                             if success or not discard_unsuccessful:
@@ -503,8 +512,7 @@ class DemonstrationsSource(Demonstrations):
                         else:
                             required_predictions[env_id] = state
                     else:
-                        raise NotImplementedError(
-                            f"Undefined behavior for {env_id} | {response}")
+                        raise NotImplementedError(f"Undefined behavior for {env_id} | {response}")
 
                 if required_predictions:
                     # Generate predictions
@@ -558,21 +566,20 @@ class DemonstrationsTarget(Demonstrations):
 
             self.trajectories.append(trajectory)
 
-        logging.info(f"Generated {len(self.trajectories)} target demonstrations "
-                     f"from {num_demonstrations} source demonstrations "
-                     f"({len(self.trajectories) / num_demonstrations * 100:1f}%).")
+        logging.info(
+            f"Generated {len(self.trajectories)} target demonstrations "
+            f"from {num_demonstrations} source demonstrations "
+            f"({len(self.trajectories) / num_demonstrations * 100:1f}%)."
+        )
 
     @classmethod
     def get_relevant_config(cls, config):
-        return {
-            **DemonstrationsSource.get_relevant_config(config),
-            **Mapper.get_relevant_config(config)
-        }
+        return {**DemonstrationsSource.get_relevant_config(config), **Mapper.get_relevant_config(config)}
 
 
 class Pretrainer(Trainer):
     def __init__(self, config):
-        self.model_cls = BC
+        self.model_cls = MARWIL
         self.model_config = config["Pretrainer"]["model"]
         self.model_config.update(config["EnvTarget"])
 
@@ -583,12 +590,15 @@ class Pretrainer(Trainer):
             demonstrations = DemonstrationsTarget(self.config)
             demonstrations.save(tmpdir)
 
-            self.model_config.update({
-                "input": tmpdir,
-                "input_config": {
-                    "format": "json",
-                    "postprocess_inputs": False,
-                }})
+            self.model_config.update(
+                {
+                    "input": tmpdir,
+                    "input_config": {
+                        "format": "json",
+                        "postprocess_inputs": False,
+                    },
+                }
+            )
 
             super(Pretrainer, self).generate()
             self.train(**self.config["Pretrainer"]["train"])
@@ -597,7 +607,7 @@ class Pretrainer(Trainer):
     def get_relevant_config(cls, config):
         return {
             **super(Pretrainer, cls).get_relevant_config(config),
-            **DemonstrationsTarget.get_relevant_config(config)
+            **DemonstrationsTarget.get_relevant_config(config),
         }
 
 
@@ -622,7 +632,4 @@ class Apprentice(Trainer):
 
     @classmethod
     def get_relevant_config(cls, config):
-        return {
-            **super(Apprentice, cls).get_relevant_config(config),
-            **Pretrainer.get_relevant_config(config)
-        }
+        return {**super(Apprentice, cls).get_relevant_config(config), **Pretrainer.get_relevant_config(config)}

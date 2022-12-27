@@ -5,6 +5,7 @@ import numpy as np
 import torch
 from collections import OrderedDict
 
+
 def unwind_dict_values(element, framework="np", device="cpu"):
     if type(element) not in (dict, OrderedDict):
         if framework == "np":
@@ -49,4 +50,4 @@ def set_seed(seed):
     torch.backends.cudnn.benchmark = False
     np.random.seed(seed)
     random.seed(seed)
-    os.environ['PYTHONHASHSEED'] = str(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)

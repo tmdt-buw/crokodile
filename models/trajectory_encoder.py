@@ -16,8 +16,19 @@ class TrajectoryEncoder(nn.Module):
     The TrajectoryEncoder encodes a trajectory with elements of arbitrary continuous spaces.
     """
 
-    def __init__(self, state_dim: int, action_dim: int, behavior_dim: int, max_len: int, d_model=64, nhead=8,
-                 num_layers=6, dim_feedforward=2048, dropout=0.1, **kwargs):
+    def __init__(
+        self,
+        state_dim: int,
+        action_dim: int,
+        behavior_dim: int,
+        max_len: int,
+        d_model=64,
+        nhead=8,
+        num_layers=6,
+        dim_feedforward=2048,
+        dropout=0.1,
+        **kwargs
+    ):
         super(TrajectoryEncoder, self).__init__()
 
         self.max_len = max_len
@@ -26,8 +37,9 @@ class TrajectoryEncoder(nn.Module):
         self.encoder_state = nn.Conv1d(state_dim, d_model, 1)
         self.encoder_action = nn.Conv1d(action_dim, d_model, 1)
 
-        encoder_layers = TransformerEncoderLayer(d_model, nhead, dim_feedforward, dropout, activation="gelu",
-                                                 batch_first=True)
+        encoder_layers = TransformerEncoderLayer(
+            d_model, nhead, dim_feedforward, dropout, activation="gelu", batch_first=True
+        )
         self.transformer_encoder = TransformerEncoder(encoder_layers, num_layers)
 
         self.behavior_decoder = nn.Conv1d(d_model, behavior_dim, 1)
@@ -54,22 +66,22 @@ class TrajectoryEncoder(nn.Module):
 
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, max_len=5, dropout=0.):
+    def __init__(self, d_model, max_len=5, dropout=0.0):
         super(PositionalEncoding, self).__init__()
 
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
         pos_div_term = position * div_term
-        pe[:, 0::2] = torch.sin(pos_div_term[:, :(d_model + 2) // 2])
-        pe[:, 1::2] = torch.cos(pos_div_term[:, :d_model // 2])
+        pe[:, 0::2] = torch.sin(pos_div_term[:, : (d_model + 2) // 2])
+        pe[:, 1::2] = torch.cos(pos_div_term[:, : d_model // 2])
         pe = pe.unsqueeze(0)
 
         self.dropout = nn.Dropout(dropout)
-        self.register_buffer('pe', pe)
+        self.register_buffer("pe", pe)
 
     def forward(self, x):
-        return self.dropout(x + self.pe[:, :x.size(1), :])
+        return self.dropout(x + self.pe[:, : x.size(1), :])
 
 
 states = torch.ones(2, 3, 3) * 2 - 1  # bld
