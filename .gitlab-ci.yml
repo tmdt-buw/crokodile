@@ -9,9 +9,9 @@ isort:
 
 black:
   stage: linting
-  image: registry.gitlab.com/mafda/python-linting
+  image: cytopia/black:latest-py3.8
   script:
-    - black --check -l 120 .
+    - python3 -m black --check -l 120 .
 
 flake8:
   stage: linting
