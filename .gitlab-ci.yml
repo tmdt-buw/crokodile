@@ -9,9 +9,11 @@ isort:
 
 black:
   stage: linting
-  image: cytopia/black:latest-py3.8
+  image:
+    name: cytopia/black:latest-py3.8
+    entrypoint: ["/bin/ash", "-c"]
   script:
-    - black --check -l 120 .
+    - python3 -m black --check -l 120 .
 
 flake8:
   stage: linting
