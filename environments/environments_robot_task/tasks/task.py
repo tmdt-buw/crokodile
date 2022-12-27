@@ -7,12 +7,10 @@ class Task(object):
     """
     Parent class for all tasks
     """
-    def __init__(self,
-                 bullet_client,
-                 offset=(0, 0, 0),
-                 max_steps=100,
-                 parameter_distributions=None,
-                 gravity=(0, 0, 0)):
+
+    def __init__(
+        self, bullet_client, offset=(0, 0, 0), max_steps=100, parameter_distributions=None, gravity=(0, 0, 0), **kwargs
+    ):
         if parameter_distributions is None:
             parameter_distributions = {}
 
@@ -90,5 +88,6 @@ class Task(object):
 
     def get_expert_action(self, state_robot, robot):
         warnings.warn(
-            'The task does not have an expert policy to query and thus cannot be used for Imitation Learning.')
+            "The task does not have an expert policy to query and thus cannot be used for Imitation Learning."
+        )
         return None

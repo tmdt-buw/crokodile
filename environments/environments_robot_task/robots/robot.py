@@ -4,7 +4,6 @@ import time
 from collections import namedtuple
 from enum import Enum
 
-import gym
 import torch
 import numpy as np
 import pybullet as p
@@ -13,8 +12,7 @@ import pybullet_utils.bullet_client as bc
 from gym import spaces
 from models.dht import Rescale, DHT_Model
 
-Joint = namedtuple("Joint", ["id", "initial_position", "limits",
-                             "max_velocity", "max_torque"])
+Joint = namedtuple("Joint", ["id", "initial_position", "limits", "max_velocity", "max_torque"])
 Link = namedtuple("Link", ["mass", "linearDamping"])
 
 
@@ -28,16 +26,28 @@ class Robot:
         CLOSING = 0
         OPEN = 1
 
-    def __init__(self, urdf_file, joints_arm, joints_hand, links=None, dht_params=None, offset=(0, 0, 0), sim_time=0.,
-                 scale=1., deactivate_self_collision=False,
-                 parameter_distributions=None, bullet_client=None):
+    def __init__(
+        self,
+        urdf_file,
+        joints_arm,
+        joints_hand,
+        links=None,
+        dht_params=None,
+        offset=(0, 0, 0),
+        sim_time=0.0,
+        scale=1.0,
+        deactivate_self_collision=False,
+        parameter_distributions=None,
+        bullet_client=None,
+        **kwargs,
+    ):
 
         if bullet_client is None:
             bullet_client = bc.BulletClient()
 
             bullet_client.setAdditionalSearchPath(pd.getDataPath())
 
-            time_step = 1. / 300.
+            time_step = 1.0 / 300.0
             bullet_client.setTimeStep(time_step)
             bullet_client.setRealTimeSimulation(0)
 
@@ -56,7 +66,8 @@ class Robot:
 
         if sim_time < self.time_step:
             self.logger.warning(
-                "time step of robot is smaller than time step of simulation. This might lead to unintended behavior.")
+                "time step of robot is smaller than time step of simulation. This might lead to unintended behavior."
+            )
 
         self.scale = scale
 
@@ -64,7 +75,7 @@ class Robot:
 
         self.offset = np.array(offset)
 
-        self.random = np.random.RandomState(int.from_bytes(os.urandom(4), byteorder='little'))
+        self.random = np.random.RandomState(int.from_bytes(os.urandom(4), byteorder="little"))
 
         flags = p.URDF_MAINTAIN_LINK_ORDER
 
@@ -102,23 +113,26 @@ class Robot:
         self.bullet_client.stepSimulation()
 
         # define spaces
-        self.action_space_ = spaces.Dict({
-            "arm": spaces.Box(-1., 1., shape=(len(self.joints),), dtype=np.float64),
-            "hand": spaces.Box(-1., 1., shape=(1,), dtype=np.float64)
-        })
-        self.action_space = gym.spaces.flatten_space(self.action_space_)
+        self.action_space = spaces.Dict(
+            {
+                "arm": spaces.Box(-1.0, 1.0, shape=(len(self.joints),), dtype=np.float64),
+                "hand": spaces.Box(-1.0, 1.0, shape=(1,), dtype=np.float64),
+            }
+        )
 
-        self.state_space = spaces.Dict({
-            "arm": spaces.Dict({
-                "joint_positions": spaces.Box(-1., 1., shape=(len(self.joints_arm),), dtype=np.float64)
-            }),
-            "hand": spaces.Box(-1., 1., shape=(1,), dtype=np.float64),
-        })
+        self.state_space = spaces.Dict(
+            {
+                "arm": spaces.Dict(
+                    {"joint_positions": spaces.Box(-1.0, 1.0, shape=(len(self.joints_arm),), dtype=np.float64)}
+                ),
+                "hand": spaces.Box(-1.0, 1.0, shape=(1,), dtype=np.float64),
+            }
+        )
 
-        joint_limits = torch.tensor([joint.limits for joint in self.joints_arm.values()])
+        self.joint_limits = torch.tensor([joint.limits for joint in self.joints_arm.values()])
 
-        self.state2angle = Rescale(-1, 1, joint_limits[:, 0], joint_limits[:, 1])
-        self.angle2state = Rescale(joint_limits[:, 0], joint_limits[:, 1], -1, 1)
+        self.state2angle = Rescale(-1, 1, self.joint_limits[:, 0], self.joint_limits[:, 1])
+        self.angle2state = Rescale(self.joint_limits[:, 0], self.joint_limits[:, 1], -1, 1)
 
         if dht_params is not None:
             self.dht_params = dht_params
@@ -172,10 +186,8 @@ class Robot:
         """
         assert action in self.action_space, f"{self.action_space} {action}"
 
-        action = gym.spaces.unflatten(self.action_space_, action)
-
-        action_arm = action["arm"]
-        action_hand = action["hand"]
+        action_arm = np.array(action["arm"])
+        action_hand = np.array(action["hand"])
 
         action_arm = list(action_arm * self.scale)  # / self.max_steps)
 
@@ -207,12 +219,9 @@ class Robot:
 
             maxVelocities.append(joint.max_velocity)
 
-        self.bullet_client.setJointMotorControlArray(self.model_id,
-                                                     joint_ids,
-                                                     p.POSITION_CONTROL,
-                                                     targetPositions=target_positions,
-                                                     forces=torques
-                                                     )
+        self.bullet_client.setJointMotorControlArray(
+            self.model_id, joint_ids, p.POSITION_CONTROL, targetPositions=target_positions, forces=torques
+        )
 
         if np.mean(action_hand) >= 0:
             self.status_hand = Robot.STATUS_HAND.OPEN
@@ -229,7 +238,7 @@ class Robot:
             joint_positions = np.array([joint_state[0] for joint_state in joint_states])
             joint_velocities = np.array([joint_state[1] for joint_state in joint_states])
 
-            if max(abs(joint_velocities)) < .01 and max(abs(joint_positions - target_positions)) < .01:
+            if max(abs(joint_velocities)) < 0.01 and max(abs(joint_positions - target_positions)) < 0.01:
                 break
 
             if self.bullet_client.getConnectionInfo()["connectionMethod"] == p.GUI:
@@ -267,10 +276,15 @@ class Robot:
 
         desired_state = complete_state(desired_state, self.state_space)
 
+        assert (
+            desired_state in self.state_space
+        ), f"desired state not in state space\n{desired_state}\n{self.state_space}"
+
         # reset until state is valid
         while True:
-            for (_, joint), desired_state_joint in zip(self.joints_arm.items(),
-                                                       desired_state["arm"]["joint_positions"]):
+            for (_, joint), desired_state_joint in zip(
+                self.joints_arm.items(), desired_state["arm"]["joint_positions"]
+            ):
                 joint_position = np.interp(desired_state_joint, [-1, 1], joint.limits)
 
                 self.bullet_client.resetJointState(self.model_id, joint.id, joint_position)
@@ -291,18 +305,18 @@ class Robot:
 
         state = self.get_state()
 
-        self.bullet_client.setJointMotorControlArray(self.model_id,
-                                                     [joint.id for joint in self.joints],
-                                                     p.VELOCITY_CONTROL,
-                                                     targetVelocities=np.zeros(len(self.joints)),
-                                                     # forces=torques
-                                                     )
+        self.bullet_client.setJointMotorControlArray(
+            self.model_id,
+            [joint.id for joint in self.joints],
+            p.VELOCITY_CONTROL,
+            targetVelocities=np.zeros(len(self.joints)),
+            # forces=torques
+        )
 
         return state
 
     @staticmethod
-    def get_coordinate_system(axis_length=.1, indicators=p.GEOM_SPHERE,
-                              indicator_size=.01, indicator_colors=None):
+    def get_coordinate_system(axis_length=0.1, indicators=p.GEOM_SPHERE, indicator_size=0.01, indicator_colors=None):
         coordinate_data = {
             "linkMasses": [0] * 3,
             "linkCollisionShapeIndices": [-1] * 3,
@@ -329,14 +343,13 @@ class Robot:
         for dim, rgbaColor in enumerate(indicator_colors):
 
             if indicators == p.GEOM_BOX:
-                linkVisualShapeIndices.append(p.createVisualShape(p.GEOM_BOX,
-                                                                  halfExtents=[
-                                                                                  indicator_size] * 3,
-                                                                  rgbaColor=rgbaColor))
+                linkVisualShapeIndices.append(
+                    p.createVisualShape(p.GEOM_BOX, halfExtents=[indicator_size] * 3, rgbaColor=rgbaColor)
+                )
             elif indicators == p.GEOM_SPHERE:
-                linkVisualShapeIndices.append(p.createVisualShape(p.GEOM_SPHERE,
-                                                                  radius=indicator_size,
-                                                                  rgbaColor=rgbaColor))
+                linkVisualShapeIndices.append(
+                    p.createVisualShape(p.GEOM_SPHERE, radius=indicator_size, rgbaColor=rgbaColor)
+                )
 
             linkPosition = [0, 0, 0]
             linkPosition[dim] = axis_length
@@ -349,20 +362,18 @@ class Robot:
         return coordinate_data
 
     def get_tcp_pose(self):
-        tcp_position, tcp_orientation, _, _, _, _, tcp_velocity, _ = self.bullet_client.getLinkState(self.model_id,
-                                                                                                     self.joint_name2id[
-                                                                                                         "tcp"],
-                                                                                                     computeForwardKinematics=True,
-                                                                                                     computeLinkVelocity=True)
+        tcp_position, tcp_orientation, _, _, _, _, tcp_velocity, _ = self.bullet_client.getLinkState(
+            self.model_id, self.joint_name2id["tcp"], computeForwardKinematics=True, computeLinkVelocity=True
+        )
 
         tcp_position = np.array(tcp_position) - self.offset
         tcp_orientation = np.array(tcp_orientation)
 
         return tcp_position, tcp_orientation
 
-    def visualize_tcp(self, length=.1):
+    def visualize_tcp(self, length=0.1):
         position, orientation = self.get_tcp_pose()
-        orientation = np.reshape(p.getMatrixFromQuaternion(orientation), (3,3))
+        orientation = np.reshape(p.getMatrixFromQuaternion(orientation), (3, 3))
 
         lines = []
 
@@ -390,23 +401,16 @@ class Robot:
         joint_positions = np.array(joint_positions)
         # joint_velocities = np.array(joint_velocities)
 
-        state = {
-            "arm": {"joint_positions": joint_positions},
-            "hand": np.array(self.status_hand.value)
-        }
+        state = {"arm": {"joint_positions": joint_positions}, "hand": np.array(self.status_hand.value)}
 
         def clip_state(state_dict, space):
             for key in state_dict:
                 if type(state_dict[key]) == dict:
                     state_dict[key] = clip_state(state_dict[key], space[key])
                 else:
-                    state_dict[key] = state_dict[key].clip(space[key].low,
-                                                           space[key].high)
+                    state_dict[key] = state_dict[key].clip(space[key].low, space[key].high)
             return state_dict
 
         state = clip_state(state, self.state_space)
 
         return state
-
-    def inverse_kinematics(self, tcp_poses):
-        raise NotImplementedError()

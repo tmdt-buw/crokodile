@@ -4,6 +4,7 @@ def get_env(env_config):
 
     if environment_name == "robot-task":
         from .environment_robot_task import EnvironmentRobotTask
+
         env = EnvironmentRobotTask(env_config)
     else:
         raise ValueError(f"Unknown environment: {environment_name}")

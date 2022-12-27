@@ -15,48 +15,46 @@ from task import Task
 
 
 class TaskThrow(Task):
+    def __init__(self, bullet_client, offset=(0, 0, 0), max_steps=100, parameter_distributions=None, **kwargs):
 
-    def __init__(self, bullet_client, offset=(0, 0, 0),
-                 max_steps=100, parameter_distributions=None):
-
-        super(TaskThrow, self).__init__(bullet_client=bullet_client,
-                                        parameter_distributions=parameter_distributions,
-                                        offset=offset,
-                                        max_steps=max_steps)
+        super(TaskThrow, self).__init__(
+            bullet_client=bullet_client,
+            parameter_distributions=parameter_distributions,
+            offset=offset,
+            max_steps=max_steps,
+            **kwargs
+        )
 
         self.distance = 2.5
 
-        self.limits = np.array([
-            (-self.distance, self.distance),
-            (-self.distance, self.distance),
-            (0., .8)
-        ])
+        self.limits = np.array([(-self.distance, self.distance), (-self.distance, self.distance), (0.0, 0.8)])
 
         self.state_space = spaces.Dict({})
 
-        self.goal_space = spaces.Dict({
-            "achieved": spaces.Box(-1, 1, shape=(3,)),
-            "desired": spaces.Box(-1, 1, shape=(3,)),
-        })
+        self.goal_space = spaces.Dict(
+            {
+                "achieved": spaces.Box(-1, 1, shape=(3,)),
+                "desired": spaces.Box(-1, 1, shape=(3,)),
+            }
+        )
 
         self.target = bullet_client.createMultiBody(
-            baseVisualShapeIndex=bullet_client.createVisualShape(p.GEOM_SPHERE,
-                                                                 radius=.5,
-                                                                 rgbaColor=[0, 1, 1, 1],
-                                                                 ),
+            baseVisualShapeIndex=bullet_client.createVisualShape(
+                p.GEOM_SPHERE,
+                radius=0.5,
+                rgbaColor=[0, 1, 1, 1],
+            ),
         )
 
         self.tcp_object_constraint = None
 
         self.object = bullet_client.createMultiBody(
-            baseVisualShapeIndex=bullet_client.createVisualShape(p.GEOM_BOX, halfExtents=[.025] * 3),
-
-            baseCollisionShapeIndex=bullet_client.createCollisionShape(p.GEOM_BOX, halfExtents=[.025] * 3),
-            baseMass=1.,
+            baseVisualShapeIndex=bullet_client.createVisualShape(p.GEOM_BOX, halfExtents=[0.025] * 3),
+            baseCollisionShapeIndex=bullet_client.createCollisionShape(p.GEOM_BOX, halfExtents=[0.025] * 3),
+            baseMass=1.0,
         )
 
-        self.random = RandomState(
-            int.from_bytes(os.urandom(4), byteorder='little'))
+        self.random = RandomState(int.from_bytes(os.urandom(4), byteorder="little"))
 
     def __del__(self):
         self.bullet_client.removeBody(self.object)
@@ -72,9 +70,9 @@ class TaskThrow(Task):
 
     def reward_function(self, goal, done, **kwargs):
         if self.success_criterion(goal):
-            reward = 1.
+            reward = 1.0
         elif done:
-            reward = -1.
+            reward = -1.0
         else:
             goal_achieved = unwind_dict_values(goal["achieved"])
             goal_desired = unwind_dict_values(goal["desired"])
@@ -98,22 +96,23 @@ class TaskThrow(Task):
             robot.status_hand = Robot.STATUS_HAND.CLOSED
 
             if self.tcp_object_constraint is None:
-                self.tcp_object_constraint = self.bullet_client.createConstraint(self.object, -1,
-                                                                                 robot.model_id, robot.index_tcp,
-                                                                                 p.JOINT_FIXED, jointAxis=[0, 0, 0],
-                                                                                 parentFramePosition=[0, 0, 0],
-                                                                                 childFramePosition=[0, 0, 0])
+                self.tcp_object_constraint = self.bullet_client.createConstraint(
+                    self.object,
+                    -1,
+                    robot.model_id,
+                    robot.index_tcp,
+                    p.JOINT_FIXED,
+                    jointAxis=[0, 0, 0],
+                    parentFramePosition=[0, 0, 0],
+                    childFramePosition=[0, 0, 0],
+                )
 
         contact_points = True
 
         if desired_state is not None:
             angle = np.arctan2(desired_state[1], desired_state[0])
 
-            desired_state = np.array([
-                self.distance * np.cos(angle),
-                self.distance * np.sin(angle),
-                0
-            ])
+            desired_state = np.array([self.distance * np.cos(angle), self.distance * np.sin(angle), 0])
 
             desired_state += self.offset
 
@@ -122,8 +121,7 @@ class TaskThrow(Task):
             self.bullet_client.stepSimulation()
 
             if robot:
-                contact_points = self.bullet_client.getContactPoints(
-                    robot.model_id, self.target)
+                contact_points = self.bullet_client.getContactPoints(robot.model_id, self.target)
             else:
                 contact_points = False
 
@@ -176,20 +174,17 @@ class TaskThrow(Task):
         state = {}
 
         goal = {
-            'achieved': {
+            "achieved": {
                 "object_position": position_object,
             },
-            'desired': {
+            "desired": {
                 "object_position": position_object_desired,
             },
         }
 
         done = self.step_counter >= self.max_steps
 
-        info = {
-            "expert_action": expert_action,
-            "steps": self.step_counter
-        }
+        info = {"expert_action": expert_action, "steps": self.step_counter}
 
         return state, goal, done, info
 
@@ -213,7 +208,7 @@ if __name__ == "__main__":
     while True:
         obs = task.reset()
 
-        for _ in np.arange(1. / time_step):
+        for _ in np.arange(1.0 / time_step):
             p.stepSimulation()
 
             time.sleep(time_step)
