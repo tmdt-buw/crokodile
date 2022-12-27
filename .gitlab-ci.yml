@@ -11,7 +11,7 @@ black:
   stage: linting
   image: cytopia/black:latest-py3.8
   script:
-    - python3 -m black --check -l 120 .
+    - black --check -l 120 .
 
 flake8:
   stage: linting
