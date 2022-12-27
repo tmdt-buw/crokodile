@@ -11,7 +11,7 @@ black:
   stage: linting
   image: registry.gitlab.com/mafda/python-linting
   script:
-    - black --check .
+    - black --check . -l 120
 
 flake8:
   stage: linting
