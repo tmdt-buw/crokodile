@@ -39,7 +39,11 @@ class Orchestrator:
                 pipes_process.append(pipe_process)
                 locks_process.append(lock)
 
-            p = mp.Process(target=self.run_process, args=(env_config, pipes_process, locks_process), daemon=True)
+            p = mp.Process(
+                target=self.run_process,
+                args=(env_config, pipes_process, locks_process),
+                daemon=True,
+            )
             p.start()
 
     def __len__(self):
@@ -67,7 +71,11 @@ class Orchestrator:
             threads = []
 
             for pipe, lock in zip(pipes, locks):
-                thread = threading.Thread(target=self.run, args=(deepcopy(env_config), pipe, lock), daemon=True)
+                thread = threading.Thread(
+                    target=self.run,
+                    args=(deepcopy(env_config), pipe, lock),
+                    daemon=True,
+                )
                 thread.start()
                 threads.append(thread)
 
@@ -145,12 +153,17 @@ class Orchestrator:
         if initial_state_generator is None:
             desired_states = [None] * len(self.pipes)
         else:
-            desired_states = [initial_state_generator(env_id=env_id) for env_id in self.pipes.keys()]
+            desired_states = [
+                initial_state_generator(env_id=env_id) for env_id in self.pipes.keys()
+            ]
 
         assert len(desired_states) == len(self.pipes)
 
         self.send(
-            [(env_id, "reset", desired_state) for env_id, desired_state in zip(self.pipes.keys(), desired_states)]
+            [
+                (env_id, "reset", desired_state)
+                for env_id, desired_state in zip(self.pipes.keys(), desired_states)
+            ]
         )
 
         responses = []
@@ -222,6 +235,8 @@ class Orchestrator:
             self.pipes[0].send(["success criterion", None])
             func, self.success_criterion_ = self.pipes[0].recv()
 
-            assert func == "success criterion", f"'{func}' instead of 'success criterion'"
+            assert (
+                func == "success criterion"
+            ), f"'{func}' instead of 'success criterion'"
 
         return self.success_criterion_

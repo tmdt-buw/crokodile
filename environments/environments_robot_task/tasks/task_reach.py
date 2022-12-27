@@ -15,7 +15,13 @@ from task import Task
 
 class TaskReach(Task):
     def __init__(
-        self, bullet_client, offset=(0, 0, 0), max_steps=25, accuracy=0.05, parameter_distributions=None, **kwargs
+        self,
+        bullet_client,
+        offset=(0, 0, 0),
+        max_steps=25,
+        accuracy=0.05,
+        parameter_distributions=None,
+        **kwargs
     ):
 
         super(TaskReach, self).__init__(
@@ -34,8 +40,20 @@ class TaskReach(Task):
 
         self.goal_space = spaces.Dict(
             {
-                "achieved": spaces.Dict({"position": spaces.Box(-np.inf, np.inf, shape=(3,), dtype=np.float64)}),
-                "desired": spaces.Dict({"position": spaces.Box(-np.inf, np.inf, shape=(3,), dtype=np.float64)}),
+                "achieved": spaces.Dict(
+                    {
+                        "position": spaces.Box(
+                            -np.inf, np.inf, shape=(3,), dtype=np.float64
+                        )
+                    }
+                ),
+                "desired": spaces.Dict(
+                    {
+                        "position": spaces.Box(
+                            -np.inf, np.inf, shape=(3,), dtype=np.float64
+                        )
+                    }
+                ),
             }
         )
 
@@ -57,9 +75,17 @@ class TaskReach(Task):
         goal_desired = unwind_dict_values(goal["desired"])
 
         goal_achieved = np.array(
-            [np.interp(value, [-1, 1], limits) for value, limits in zip(goal_achieved, self.limits)]
+            [
+                np.interp(value, [-1, 1], limits)
+                for value, limits in zip(goal_achieved, self.limits)
+            ]
         )
-        goal_desired = np.array([np.interp(value, [-1, 1], limits) for value, limits in zip(goal_desired, self.limits)])
+        goal_desired = np.array(
+            [
+                np.interp(value, [-1, 1], limits)
+                for value, limits in zip(goal_desired, self.limits)
+            ]
+        )
 
         goal_distance = np.linalg.norm(goal_achieved - goal_desired)
         return goal_distance < self.accuracy
@@ -74,10 +100,16 @@ class TaskReach(Task):
             goal_desired = unwind_dict_values(goal["desired"])
 
             goal_achieved = np.array(
-                [np.interp(value, [-1, 1], limits) for value, limits in zip(goal_achieved, self.limits)]
+                [
+                    np.interp(value, [-1, 1], limits)
+                    for value, limits in zip(goal_achieved, self.limits)
+                ]
             )
             goal_desired = np.array(
-                [np.interp(value, [-1, 1], limits) for value, limits in zip(goal_desired, self.limits)]
+                [
+                    np.interp(value, [-1, 1], limits)
+                    for value, limits in zip(goal_desired, self.limits)
+                ]
             )
 
             reward = np.exp(-1 * np.linalg.norm(goal_achieved - goal_desired)) - 1
@@ -85,7 +117,14 @@ class TaskReach(Task):
 
         return reward
 
-    def reset(self, desired_state=None, desired_goal=None, robot=None, state_robot=None, force=False):
+    def reset(
+        self,
+        desired_state=None,
+        desired_goal=None,
+        robot=None,
+        state_robot=None,
+        force=False,
+    ):
 
         super(TaskReach, self).reset()
 
@@ -106,7 +145,9 @@ class TaskReach(Task):
             desired_target_position = np.array(
                 [
                     np.interp(value, [-1, 1], limits)
-                    for value, limits in zip(desired_goal["desired"]["position"], self.limits)
+                    for value, limits in zip(
+                        desired_goal["desired"]["position"], self.limits
+                    )
                 ]
             )
 
@@ -116,7 +157,9 @@ class TaskReach(Task):
             self.bullet_client.stepSimulation()
 
             if robot and not force:
-                contact_points = self.bullet_client.getContactPoints(robot.model_id, self.target)
+                contact_points = self.bullet_client.getContactPoints(
+                    robot.model_id, self.target
+                )
             else:
                 contact_points = False
 
@@ -136,15 +179,23 @@ class TaskReach(Task):
         if state_robot is not None and robot is not None:
             position_achieved, _ = robot.get_tcp_pose()
             position_achieved = np.array(
-                [np.interp(value, limits, [-1, 1]) for value, limits in zip(position_achieved, self.limits)]
+                [
+                    np.interp(value, limits, [-1, 1])
+                    for value, limits in zip(position_achieved, self.limits)
+                ]
             )
 
-        position_desired, _ = self.bullet_client.getBasePositionAndOrientation(self.target)
+        position_desired, _ = self.bullet_client.getBasePositionAndOrientation(
+            self.target
+        )
         position_desired = np.array(position_desired)
         position_desired -= self.offset
 
         position_desired = np.array(
-            [np.interp(value, limits, [-1, 1]) for value, limits in zip(position_desired, self.limits)]
+            [
+                np.interp(value, limits, [-1, 1])
+                for value, limits in zip(position_desired, self.limits)
+            ]
         )
 
         state = {}

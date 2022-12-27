@@ -15,7 +15,9 @@ class Expert:
         self.ik_world.loadElement(self.robot.urdf_file)
         self.ik_model = self.ik_world.robot(0)
         self.ik_dof_joint_ids = [
-            jj for jj in range(self.ik_model.numLinks()) if self.ik_model.getJointType(jj) == "normal"
+            jj
+            for jj in range(self.ik_model.numLinks())
+            if self.ik_model.getJointType(jj) == "normal"
         ]
         self.ik_dof_joint_ids = self.ik_dof_joint_ids[: len(self.robot.joints)]
 
@@ -26,7 +28,10 @@ class Expert:
     def predict(self, state, goal):
         position_target = goal["desired"]["position"]
         position_target = np.array(
-            [np.interp(value, [-1, 1], limits) for value, limits in zip(position_target, self.limits)]
+            [
+                np.interp(value, [-1, 1], limits)
+                for value, limits in zip(position_target, self.limits)
+            ]
         )
 
         # current_positions_arm = [np.interp(position, [-1, 1], joint.limits) for joint, position in
@@ -53,7 +58,9 @@ class Expert:
         if not res:
             return None
 
-        desired_state_arm = np.array([self.ik_model.getDOFPosition(jj) for jj in self.ik_dof_joint_ids])
+        desired_state_arm = np.array(
+            [self.ik_model.getDOFPosition(jj) for jj in self.ik_dof_joint_ids]
+        )
 
         desired_state_arm_normed = np.array(
             [
@@ -62,7 +69,9 @@ class Expert:
             ]
         )
 
-        delta_poses_arm = desired_state_arm_normed - state["robot"]["arm"]["joint_positions"]
+        delta_poses_arm = (
+            desired_state_arm_normed - state["robot"]["arm"]["joint_positions"]
+        )
 
         action["arm"] = delta_poses_arm / self.robot.scale
 

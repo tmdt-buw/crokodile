@@ -18,7 +18,13 @@ except ImportError:
 
 
 class Push(Task):
-    def __init__(self, bullet_client, offset=(0, 0, 0), max_steps=100, parameter_distributions=None):
+    def __init__(
+        self,
+        bullet_client,
+        offset=(0, 0, 0),
+        max_steps=100,
+        parameter_distributions=None,
+    ):
 
         super(Push, self).__init__(
             bullet_client=bullet_client,
@@ -30,8 +36,12 @@ class Push(Task):
         self.limits = np.array([(-0.8, 0.8), (-0.8, 0.8), (0.0, 0.8)])
 
         # position target, position object
-        self.state_space = spaces.Dict({"object_position": spaces.Box(-1, 1, shape=(3,))})
-        self.goal_space = spaces.Dict({"target_position": spaces.Box(-1, 1, shape=(3,))})
+        self.state_space = spaces.Dict(
+            {"object_position": spaces.Box(-1, 1, shape=(3,))}
+        )
+        self.goal_space = spaces.Dict(
+            {"target_position": spaces.Box(-1, 1, shape=(3,))}
+        )
 
         # add plane to place box on
         bullet_client.loadURDF("plane.urdf")
@@ -93,13 +103,17 @@ class Push(Task):
 
         if desired_state is not None:
             # gripped flag irrelevant for initial state
-            desired_state_object, desired_state_target = np.split(np.array(desired_state), 2)
+            desired_state_object, desired_state_target = np.split(
+                np.array(desired_state), 2
+            )
 
             desired_state_object = [
-                np.interp(value, [-1, 1], limits) for value, limits in zip(desired_state_object, self.limits)
+                np.interp(value, [-1, 1], limits)
+                for value, limits in zip(desired_state_object, self.limits)
             ]
             desired_state_target = [
-                np.interp(value, [-1, 1], limits) for value, limits in zip(desired_state_target, self.limits)
+                np.interp(value, [-1, 1], limits)
+                for value, limits in zip(desired_state_target, self.limits)
             ]
 
             assert (
@@ -113,38 +127,59 @@ class Push(Task):
             desired_state_object[-1] = 0  # put on floor
             desired_state_target[-1] = 0  # put on floor
 
-            self.bullet_client.resetBasePositionAndOrientation(self.object, desired_state_object, [0, 0, 0, 1])
+            self.bullet_client.resetBasePositionAndOrientation(
+                self.object, desired_state_object, [0, 0, 0, 1]
+            )
 
-            self.bullet_client.resetBasePositionAndOrientation(self.target, desired_state_target, [0, 0, 0, 1])
+            self.bullet_client.resetBasePositionAndOrientation(
+                self.target, desired_state_target, [0, 0, 0, 1]
+            )
 
             self.bullet_client.stepSimulation()
 
             if robot:
-                contact_points = self.bullet_client.getContactPoints(robot.model_id, self.object)
+                contact_points = self.bullet_client.getContactPoints(
+                    robot.model_id, self.object
+                )
 
-                assert not contact_points, f"desired_state puts object and " f"robot in collision"
+                assert not contact_points, (
+                    f"desired_state puts object and " f"robot in collision"
+                )
 
         else:
             contact_points = True
 
             while contact_points:
-                object_position = np.random.uniform(self.limits[:, 0], self.limits[:, 1])
+                object_position = np.random.uniform(
+                    self.limits[:, 0], self.limits[:, 1]
+                )
                 object_position[-1] = 0  # put object on floor and use gravity
-                target_position = np.random.uniform(self.limits[:, 0], self.limits[:, 1])
+                target_position = np.random.uniform(
+                    self.limits[:, 0], self.limits[:, 1]
+                )
                 target_position[-1] = 0  # put object on floor and use gravity
 
-                if np.linalg.norm(object_position) < 0.8 and np.linalg.norm(target_position) < 0.8:
+                if (
+                    np.linalg.norm(object_position) < 0.8
+                    and np.linalg.norm(target_position) < 0.8
+                ):
                     object_position += self.offset
-                    self.bullet_client.resetBasePositionAndOrientation(self.object, object_position, [0, 0, 0, 1])
+                    self.bullet_client.resetBasePositionAndOrientation(
+                        self.object, object_position, [0, 0, 0, 1]
+                    )
 
                     target_position += self.offset
-                    self.bullet_client.resetBasePositionAndOrientation(self.target, target_position, [0, 0, 0, 1])
+                    self.bullet_client.resetBasePositionAndOrientation(
+                        self.target, target_position, [0, 0, 0, 1]
+                    )
                     self.bullet_client.stepSimulation()
                 else:
                     continue
 
                 if robot:
-                    contact_points = self.bullet_client.getContactPoints(robot.model_id, self.object)
+                    contact_points = self.bullet_client.getContactPoints(
+                        robot.model_id, self.object
+                    )
                 else:
                     contact_points = False
 
@@ -156,19 +191,29 @@ class Push(Task):
         else:
             position_tcp = state_robot["tcp_position"]
 
-        position_object, _ = self.bullet_client.getBasePositionAndOrientation(self.object)
+        position_object, _ = self.bullet_client.getBasePositionAndOrientation(
+            self.object
+        )
 
         position_object = np.array(position_object)
 
-        position_object_desired, _ = self.bullet_client.getBasePositionAndOrientation(self.target)
+        position_object_desired, _ = self.bullet_client.getBasePositionAndOrientation(
+            self.target
+        )
 
         position_object_desired = np.array(position_object_desired)
 
         state = {"position": position_object, "goal": position_object_desired}
 
-        achieved_goal = {"object_position": position_object, "tcp_position": position_tcp}
+        achieved_goal = {
+            "object_position": position_object,
+            "tcp_position": position_tcp,
+        }
 
-        desired_goal = {"object_position": position_object_desired, "tcp_position": position_object}
+        desired_goal = {
+            "object_position": position_object_desired,
+            "tcp_position": position_object,
+        }
 
         goal_info = {
             "achieved": achieved_goal,

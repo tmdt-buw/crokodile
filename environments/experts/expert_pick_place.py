@@ -15,7 +15,9 @@ class Expert:
         self.ik_world.loadElement(self.robot.urdf_file)
         self.ik_model = self.ik_world.robot(0)
         self.ik_dof_joint_ids = [
-            jj for jj in range(self.ik_model.numLinks()) if self.ik_model.getJointType(jj) == "normal"
+            jj
+            for jj in range(self.ik_model.numLinks())
+            if self.ik_model.getJointType(jj) == "normal"
         ]
         self.ik_dof_joint_ids = self.ik_dof_joint_ids[: len(self.robot.joints)]
 
@@ -26,20 +28,33 @@ class Expert:
     def predict(self, state, goal):
         position_object = goal["achieved"]["object_position"]
         position_object = np.array(
-            [np.interp(value, [-1, 1], limits) for value, limits in zip(position_object, self.limits)]
+            [
+                np.interp(value, [-1, 1], limits)
+                for value, limits in zip(position_object, self.limits)
+            ]
         )
 
         position_object_desired = goal["desired"]["object_position"]
         position_object_desired = np.array(
-            [np.interp(value, [-1, 1], limits) for value, limits in zip(position_object_desired, self.limits)]
+            [
+                np.interp(value, [-1, 1], limits)
+                for value, limits in zip(position_object_desired, self.limits)
+            ]
         )
 
         tcp_position = goal["achieved"]["tcp_position"]
-        tcp_position = np.array([np.interp(value, [-1, 1], limits) for value, limits in zip(tcp_position, self.limits)])
+        tcp_position = np.array(
+            [
+                np.interp(value, [-1, 1], limits)
+                for value, limits in zip(tcp_position, self.limits)
+            ]
+        )
 
         current_positions_arm = [
             np.interp(position, [-1, 1], joint.limits)
-            for joint, position in zip(self.robot.joints, state["robot"]["arm"]["joint_positions"])
+            for joint, position in zip(
+                self.robot.joints, state["robot"]["arm"]["joint_positions"]
+            )
         ]
 
         action = self.robot.action_space_.sample()
@@ -62,7 +77,10 @@ class Expert:
 
             if state["task"]["object_gripped"] > 0:
                 goal_position = position_object_desired.copy()
-                if np.linalg.norm(position_object[:2] - position_object_desired[:2]) > 0.02:
+                if (
+                    np.linalg.norm(position_object[:2] - position_object_desired[:2])
+                    > 0.02
+                ):
                     goal_position[-1] += 0.05
                     goal_orientation = orientation_object
                 else:
@@ -88,7 +106,9 @@ class Expert:
 
             if goal_orientation is None:
                 obj = ik.objective(
-                    self.ik_model.link(self.ik_model.numLinks() - 1), local=[0, 0, 0], world=list(goal_position)
+                    self.ik_model.link(self.ik_model.numLinks() - 1),
+                    local=[0, 0, 0],
+                    world=list(goal_position),
                 )
             else:
                 obj = ik.objective(
@@ -102,7 +122,9 @@ class Expert:
             if not res:
                 return None
 
-            desired_state_arm = np.array([self.ik_model.getDOFPosition(jj) for jj in self.ik_dof_joint_ids])
+            desired_state_arm = np.array(
+                [self.ik_model.getDOFPosition(jj) for jj in self.ik_dof_joint_ids]
+            )
 
             # print(desired_state_arm)
 
@@ -113,7 +135,9 @@ class Expert:
                 ]
             )
 
-            delta_poses_arm = desired_state_arm_normed - state["robot"]["arm"]["joint_positions"]
+            delta_poses_arm = (
+                desired_state_arm_normed - state["robot"]["arm"]["joint_positions"]
+            )
 
             action["arm"] = delta_poses_arm / self.robot.scale
 

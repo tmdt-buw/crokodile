@@ -62,7 +62,9 @@ class Stage:
             elif type(save) is dict:
                 save = save.get(self.__class__.__name__, False)
 
-            assert type(load) is bool and type(save) is bool, f"Invalid cache config: {config['cache']}"
+            assert (
+                type(load) is bool and type(save) is bool
+            ), f"Invalid cache config: {config['cache']}"
 
         if load:
             try:
@@ -72,7 +74,9 @@ class Stage:
                 # Don't save again if we loaded
                 save = False
             except:
-                logging.warning(f"Loading cache not possible for {self.__class__.__name__}. Generating instead.")
+                logging.warning(
+                    f"Loading cache not possible for {self.__class__.__name__}. Generating instead."
+                )
                 self.generate()
         else:
             logging.info(f"Generating {self.__class__.__name__}.")
@@ -85,24 +89,34 @@ class Stage:
             self.save()
 
     def generate(self):
-        raise NotImplementedError(f"generate() not implemented for {self.__class__.__name__}")
+        raise NotImplementedError(
+            f"generate() not implemented for {self.__class__.__name__}"
+        )
 
     def load(self):
-        raise NotImplementedError(f"load() not implemented for {self.__class__.__name__}")
+        raise NotImplementedError(
+            f"load() not implemented for {self.__class__.__name__}"
+        )
 
     def save(self):
-        raise NotImplementedError(f"save() not implemented for {self.__class__.__name__}")
+        raise NotImplementedError(
+            f"save() not implemented for {self.__class__.__name__}"
+        )
 
     @classmethod
     def get_relevant_config(cls, config):
-        raise NotImplementedError(f"get_relevant_config() not implemented for {cls.__name__}")
+        raise NotImplementedError(
+            f"get_relevant_config() not implemented for {cls.__name__}"
+        )
 
     @classmethod
     def get_config_hash(cls, config):
         return hashlib.sha256(
-            json.dumps(cls.get_relevant_config(config), default=lambda o: "<not serializable>", sort_keys=True).encode(
-                "utf-8"
-            )
+            json.dumps(
+                cls.get_relevant_config(config),
+                default=lambda o: "<not serializable>",
+                sort_keys=True,
+            ).encode("utf-8")
         ).hexdigest()[:6]
 
 
@@ -136,13 +150,19 @@ class Trainer(Stage):
     def load(self, path=None):
         if path is None and self.config["cache"]["mode"] == "wandb":
             wandb_config = self.config["wandb_config"]
-            wandb_checkpoint_path = f"{wandb_config['entity']}/{wandb_config['project']}/{self.hash}:latest"
+            wandb_checkpoint_path = (
+                f"{wandb_config['entity']}/{wandb_config['project']}/{self.hash}:latest"
+            )
             logging.info(f"wandb artifact: {wandb_checkpoint_path}")
 
             with tempfile.TemporaryDirectory() as tmpdir:
-                download_folder = wandb.Api().artifact(wandb_checkpoint_path).download(tmpdir)
+                download_folder = (
+                    wandb.Api().artifact(wandb_checkpoint_path).download(tmpdir)
+                )
 
-                checkpoint_folder = os.path.join(download_folder, os.listdir(download_folder)[0])
+                checkpoint_folder = os.path.join(
+                    download_folder, os.listdir(download_folder)[0]
+                )
 
                 self.load(checkpoint_folder)
         elif os.path.exists(path):
@@ -205,12 +225,20 @@ class Trainer(Stage):
                         f"success ratio={results['custom_metrics'].get('success_mean', np.nan):.3f}"
                     )
 
-                if results["custom_metrics"].get("success_mean", -1) > success_threshold:
+                if (
+                    results["custom_metrics"].get("success_mean", -1)
+                    > success_threshold
+                ):
                     break
 
     @classmethod
     def get_relevant_config(cls, config):
-        return {cls.__name__: {"model": config[cls.__name__]["model"], "train": config[cls.__name__]["train"]}}
+        return {
+            cls.__name__: {
+                "model": config[cls.__name__]["model"],
+                "train": config[cls.__name__]["train"],
+            }
+        }
 
 
 class Mapper(Stage):
@@ -222,7 +250,9 @@ class Mapper(Stage):
         robot_target_config = config["EnvTarget"]["env_config"]["robot_config"]
 
         if robot_source_config == robot_target_config:
-            logging.warning("Same source and target robot. If you are not debugging, this is probably a mistake.")
+            logging.warning(
+                "Same source and target robot. If you are not debugging, this is probably a mistake."
+            )
             return super(Mapper, cls).__new__(cls)
         elif config["Mapper"]["type"] == "explicit":
             return super(Mapper, cls).__new__(MapperExplicit)
@@ -265,8 +295,12 @@ class MapperExplicit(Mapper):
         super(MapperExplicit, self).__init__(config)
 
     def generate(self):
-        self.robot_source = get_robot(self.config["EnvSource"]["env_config"]["robot_config"])
-        self.robot_target = get_robot(self.config["EnvTarget"]["env_config"]["robot_config"])
+        self.robot_source = get_robot(
+            self.config["EnvSource"]["env_config"]["robot_config"]
+        )
+        self.robot_target = get_robot(
+            self.config["EnvTarget"]["env_config"]["robot_config"]
+        )
 
     def load(self):
         # For the explicit mapper, there is nothing to load
@@ -275,8 +309,16 @@ class MapperExplicit(Mapper):
     @classmethod
     def get_relevant_config(cls, config):
         return {
-            "EnvSource": {"env_config": {"robot_config": config["EnvSource"]["env_config"]["robot_config"]}},
-            "robot_target": {"env_config": {"robot_config": config["EnvTarget"]["env_config"]["robot_config"]}},
+            "EnvSource": {
+                "env_config": {
+                    "robot_config": config["EnvSource"]["env_config"]["robot_config"]
+                }
+            },
+            "robot_target": {
+                "env_config": {
+                    "robot_config": config["EnvTarget"]["env_config"]["robot_config"]
+                }
+            },
         }
 
     def map_trajectories(self, trajectories):
@@ -289,7 +331,10 @@ class MapperExplicit(Mapper):
     def map_trajectory(self, trajectory):
 
         joint_positions_source = np.stack(
-            [obs["state"]["robot"]["arm"]["joint_positions"] for obs in trajectory["obs"]]
+            [
+                obs["state"]["robot"]["arm"]["joint_positions"]
+                for obs in trajectory["obs"]
+            ]
         )
         joint_positions_source = torch.from_numpy(joint_positions_source).float()
 
@@ -298,10 +343,14 @@ class MapperExplicit(Mapper):
         joint_angles_target = self.robot_target.inverse_kinematics(tcp_poses)
 
         # map joint angles inside joint limits (if possible)
-        while (mask := joint_angles_target < self.robot_target.joint_limits[:, 0]).any():
+        while (
+            mask := joint_angles_target < self.robot_target.joint_limits[:, 0]
+        ).any():
             joint_angles_target[mask] += 2 * np.pi
 
-        while (mask := joint_angles_target > self.robot_target.joint_limits[:, 1]).any():
+        while (
+            mask := joint_angles_target > self.robot_target.joint_limits[:, 1]
+        ).any():
             joint_angles_target[mask] -= 2 * np.pi
 
         mask = (joint_angles_target < self.robot_target.joint_limits[:, 0]) & (
@@ -313,7 +362,9 @@ class MapperExplicit(Mapper):
 
         if joint_angles_target.isnan().any(-1).all(-1).any():
             # todo: replace with custom exception
-            raise AssertionError("At least one state from trajectory could not be mapped.")
+            raise AssertionError(
+                "At least one state from trajectory could not be mapped."
+            )
 
         joint_positions_target = self.robot_target.angle2state(joint_angles_target)
 
@@ -330,10 +381,16 @@ class MapperExplicit(Mapper):
             G.add_edge(
                 f"{len(joint_positions_target) - 1}/{nn}",
                 "e",
-                attr={"from": (len(joint_positions_target) - 1, nn), "to": None, "weight": 0.0},
+                attr={
+                    "from": (len(joint_positions_target) - 1, nn),
+                    "to": None,
+                    "weight": 0.0,
+                },
             )
 
-        for nn, (jp, jp_next) in enumerate(zip(joint_positions_target[:-1], joint_positions_target[1:])):
+        for nn, (jp, jp_next) in enumerate(
+            zip(joint_positions_target[:-1], joint_positions_target[1:])
+        ):
             actions = (jp_next.unsqueeze(0) - jp.unsqueeze(1)) / self.robot_target.scale
 
             # todo integrate kinematic chain similarity
@@ -349,7 +406,11 @@ class MapperExplicit(Mapper):
                 G.add_edge(
                     f"{nn}/{xx}",
                     f"{nn + 1}/{yy}",
-                    attr={"from": (nn, xx), "to": (nn + 1, yy), "weight": actions_max[xx, yy]},
+                    attr={
+                        "from": (nn, xx),
+                        "to": (nn + 1, yy),
+                        "weight": actions_max[xx, yy],
+                    },
                 )
 
         path = nx.dijkstra_path(G, "s", "e")[1:-1]
@@ -361,7 +422,9 @@ class MapperExplicit(Mapper):
         trajectory = deepcopy(trajectory)
 
         for old_state, new_state in zip(trajectory["obs"], best_states):
-            old_state["state"]["robot"]["arm"]["joint_positions"] = new_state.cpu().detach().numpy()
+            old_state["state"]["robot"]["arm"]["joint_positions"] = (
+                new_state.cpu().detach().numpy()
+            )
 
         for old_action, new_action in zip(trajectory["actions"], best_actions):
             old_action["arm"] = new_action.cpu().detach().tolist()
@@ -419,9 +482,15 @@ class Demonstrations(Stage):
                 wandb_config = self.config["wandb_config"]
                 wandb_checkpoint_path = f"{wandb_config['entity']}/{wandb_config['project']}/{self.hash}:latest"
 
-                download_folder = wandb.Api().artifact(wandb_checkpoint_path).download(tmpdir)
+                download_folder = (
+                    wandb.Api().artifact(wandb_checkpoint_path).download(tmpdir)
+                )
 
-                checkpoint_file = [f for f in os.listdir(download_folder) if re.match("^output.*\.json$", f)][0]
+                checkpoint_file = [
+                    f
+                    for f in os.listdir(download_folder)
+                    if re.match("^output.*\.json$", f)
+                ][0]
                 checkpoint_path = os.path.join(download_folder, checkpoint_file)
 
                 self.load(checkpoint_path)
@@ -456,7 +525,9 @@ class DemonstrationsSource(Demonstrations):
         trials = 0
         self.trajectories = []
 
-        with Orchestrator(expert.workers.local_worker().env_context, cpu_count()) as orchestrator:
+        with Orchestrator(
+            expert.workers.local_worker().env_context, cpu_count()
+        ) as orchestrator:
             success_criterion = orchestrator.success_criterion
 
             responses = orchestrator.reset_all()
@@ -485,7 +556,9 @@ class DemonstrationsSource(Demonstrations):
                         else:
                             if max_trials:
                                 trials += 1
-                                pbar.set_description(f"trials={trials}/{max_trials} ({trials / max_trials * 100:.0f}%)")
+                                pbar.set_description(
+                                    f"trials={trials}/{max_trials} ({trials / max_trials * 100:.0f}%)"
+                                )
 
                             # Update eps_id
                             eps_ids[env_id] = max(eps_ids.values()) + 1
@@ -503,7 +576,9 @@ class DemonstrationsSource(Demonstrations):
                             if success or not discard_unsuccessful:
                                 batch_builder[env_id].add_values(obs=state)
 
-                                self.trajectories.append(batch_builder[env_id].build_and_reset())
+                                self.trajectories.append(
+                                    batch_builder[env_id].build_and_reset()
+                                )
                                 pbar.update(1)
                             else:
                                 del batch_builder[env_id]
@@ -512,11 +587,15 @@ class DemonstrationsSource(Demonstrations):
                         else:
                             required_predictions[env_id] = state
                     else:
-                        raise NotImplementedError(f"Undefined behavior for {env_id} | {response}")
+                        raise NotImplementedError(
+                            f"Undefined behavior for {env_id} | {response}"
+                        )
 
                 if required_predictions:
                     # Generate predictions
-                    for env_id, action in expert.compute_actions(required_predictions).items():
+                    for env_id, action in expert.compute_actions(
+                        required_predictions
+                    ).items():
                         requests.append((env_id, "step", action))
 
                         batch_builder[env_id].add_values(
@@ -534,7 +613,10 @@ class DemonstrationsSource(Demonstrations):
 
     @classmethod
     def get_relevant_config(cls, config):
-        return {cls.__name__: config[cls.__name__], **Expert.get_relevant_config(config)}
+        return {
+            cls.__name__: config[cls.__name__],
+            **Expert.get_relevant_config(config),
+        }
 
 
 class DemonstrationsTarget(Demonstrations):
@@ -554,15 +636,22 @@ class DemonstrationsTarget(Demonstrations):
         del mapper
 
         env = EnvironmentRobotTask(self.config["EnvTarget"]["env_config"])
-        preprocessor_obs = get_preprocessor(env.observation_space)(env.observation_space)
+        preprocessor_obs = get_preprocessor(env.observation_space)(
+            env.observation_space
+        )
         preprocessor_actions = get_preprocessor(env.action_space)(env.action_space)
         del env
 
         self.trajectories = []
 
         for trajectory in tqdm(mapped_trajectories, total=num_demonstrations):
-            trajectory["obs"] = [preprocessor_obs.transform(obs) for obs in trajectory["obs"]]
-            trajectory["actions"] = [preprocessor_actions.transform(action) for action in trajectory["actions"]]
+            trajectory["obs"] = [
+                preprocessor_obs.transform(obs) for obs in trajectory["obs"]
+            ]
+            trajectory["actions"] = [
+                preprocessor_actions.transform(action)
+                for action in trajectory["actions"]
+            ]
 
             self.trajectories.append(trajectory)
 
@@ -574,7 +663,10 @@ class DemonstrationsTarget(Demonstrations):
 
     @classmethod
     def get_relevant_config(cls, config):
-        return {**DemonstrationsSource.get_relevant_config(config), **Mapper.get_relevant_config(config)}
+        return {
+            **DemonstrationsSource.get_relevant_config(config),
+            **Mapper.get_relevant_config(config),
+        }
 
 
 class Pretrainer(Trainer):
@@ -632,4 +724,7 @@ class Apprentice(Trainer):
 
     @classmethod
     def get_relevant_config(cls, config):
-        return {**super(Apprentice, cls).get_relevant_config(config), **Pretrainer.get_relevant_config(config)}
+        return {
+            **super(Apprentice, cls).get_relevant_config(config),
+            **Pretrainer.get_relevant_config(config),
+        }

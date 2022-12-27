@@ -9,7 +9,13 @@ class Task(object):
     """
 
     def __init__(
-        self, bullet_client, offset=(0, 0, 0), max_steps=100, parameter_distributions=None, gravity=(0, 0, 0), **kwargs
+        self,
+        bullet_client,
+        offset=(0, 0, 0),
+        max_steps=100,
+        parameter_distributions=None,
+        gravity=(0, 0, 0),
+        **kwargs
     ):
         if parameter_distributions is None:
             parameter_distributions = {}

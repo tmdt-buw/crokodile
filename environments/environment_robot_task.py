@@ -85,7 +85,9 @@ class EnvironmentRobotTask(Env):
 
     @property
     def observation_space(self):
-        observation_space = spaces.Dict({"state": self.state_space, "goal": self.goal_space})
+        observation_space = spaces.Dict(
+            {"state": self.state_space, "goal": self.goal_space}
+        )
 
         return observation_space
 
@@ -102,10 +104,17 @@ class EnvironmentRobotTask(Env):
 
         state_robot = self.robot.reset(desired_state.get("robot"), force=force)
         state_task, goal, info = self.task.reset(
-            desired_state.get("task"), desired_goal, self.robot, state_robot, force=force
+            desired_state.get("task"),
+            desired_goal,
+            self.robot,
+            state_robot,
+            force=force,
         )
 
-        observation = {"state": {"robot": state_robot, "task": state_task}, "goal": goal}
+        observation = {
+            "state": {"robot": state_robot, "task": state_task},
+            "goal": goal,
+        }
 
         return observation
 
@@ -115,7 +124,10 @@ class EnvironmentRobotTask(Env):
         state_robot = self.robot.step(action)
         state_task, goal, done, info = self.task.step(state_robot, self.robot)
 
-        observation = {"state": {"robot": state_robot, "task": state_task}, "goal": goal}
+        observation = {
+            "state": {"robot": state_robot, "task": state_task},
+            "goal": goal,
+        }
 
         success = self.success_criterion(goal)
         done |= success
@@ -145,7 +157,9 @@ class Callbacks(DefaultCallbacks):
         # "batch_mode": "truncate_episodes".
         if worker.policy_config["batch_mode"] == "truncate_episodes":
             # Make sure this episode is really done.
-            assert episode.batch_builder.policy_collectors["default_policy"].batches[-1]["dones"][
+            assert episode.batch_builder.policy_collectors["default_policy"].batches[
+                -1
+            ]["dones"][
                 -1
             ], "ERROR: `on_episode_end()` should only be called after episode is done!"
 

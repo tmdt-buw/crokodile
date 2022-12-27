@@ -15,7 +15,14 @@ from task import Task
 
 
 class TaskThrow(Task):
-    def __init__(self, bullet_client, offset=(0, 0, 0), max_steps=100, parameter_distributions=None, **kwargs):
+    def __init__(
+        self,
+        bullet_client,
+        offset=(0, 0, 0),
+        max_steps=100,
+        parameter_distributions=None,
+        **kwargs
+    ):
 
         super(TaskThrow, self).__init__(
             bullet_client=bullet_client,
@@ -27,7 +34,13 @@ class TaskThrow(Task):
 
         self.distance = 2.5
 
-        self.limits = np.array([(-self.distance, self.distance), (-self.distance, self.distance), (0.0, 0.8)])
+        self.limits = np.array(
+            [
+                (-self.distance, self.distance),
+                (-self.distance, self.distance),
+                (0.0, 0.8),
+            ]
+        )
 
         self.state_space = spaces.Dict({})
 
@@ -49,8 +62,12 @@ class TaskThrow(Task):
         self.tcp_object_constraint = None
 
         self.object = bullet_client.createMultiBody(
-            baseVisualShapeIndex=bullet_client.createVisualShape(p.GEOM_BOX, halfExtents=[0.025] * 3),
-            baseCollisionShapeIndex=bullet_client.createCollisionShape(p.GEOM_BOX, halfExtents=[0.025] * 3),
+            baseVisualShapeIndex=bullet_client.createVisualShape(
+                p.GEOM_BOX, halfExtents=[0.025] * 3
+            ),
+            baseCollisionShapeIndex=bullet_client.createCollisionShape(
+                p.GEOM_BOX, halfExtents=[0.025] * 3
+            ),
             baseMass=1.0,
         )
 
@@ -91,7 +108,9 @@ class TaskThrow(Task):
         # attach object to tcp
         if robot is not None:
             tcp_position, _ = robot.get_tcp_pose()
-            self.bullet_client.resetBasePositionAndOrientation(self.object, tcp_position, [0, 0, 0, 1])
+            self.bullet_client.resetBasePositionAndOrientation(
+                self.object, tcp_position, [0, 0, 0, 1]
+            )
 
             robot.status_hand = Robot.STATUS_HAND.CLOSED
 
@@ -112,16 +131,22 @@ class TaskThrow(Task):
         if desired_state is not None:
             angle = np.arctan2(desired_state[1], desired_state[0])
 
-            desired_state = np.array([self.distance * np.cos(angle), self.distance * np.sin(angle), 0])
+            desired_state = np.array(
+                [self.distance * np.cos(angle), self.distance * np.sin(angle), 0]
+            )
 
             desired_state += self.offset
 
-            self.bullet_client.resetBasePositionAndOrientation(self.target, desired_state, [0, 0, 0, 1])
+            self.bullet_client.resetBasePositionAndOrientation(
+                self.target, desired_state, [0, 0, 0, 1]
+            )
 
             self.bullet_client.stepSimulation()
 
             if robot:
-                contact_points = self.bullet_client.getContactPoints(robot.model_id, self.target)
+                contact_points = self.bullet_client.getContactPoints(
+                    robot.model_id, self.target
+                )
             else:
                 contact_points = False
 
@@ -136,10 +161,14 @@ class TaskThrow(Task):
             target_position[-1] = 0
 
             target_position += self.offset
-            self.bullet_client.resetBasePositionAndOrientation(self.target, target_position, [0, 0, 0, 1])
+            self.bullet_client.resetBasePositionAndOrientation(
+                self.target, target_position, [0, 0, 0, 1]
+            )
 
             if robot:
-                contact_points = self.bullet_client.getContactPoints(robot.model_id, self.target)
+                contact_points = self.bullet_client.getContactPoints(
+                    robot.model_id, self.target
+                )
             else:
                 contact_points = False
 
@@ -163,12 +192,16 @@ class TaskThrow(Task):
         if state_robot is not None and robot is not None:
             expert_action = self.get_expert_action(state_robot, robot)
 
-        position_object, _ = self.bullet_client.getBasePositionAndOrientation(self.object)
+        position_object, _ = self.bullet_client.getBasePositionAndOrientation(
+            self.object
+        )
         position_object = np.array(position_object)
 
         velocity_object, _ = self.bullet_client.getBaseVelocity(self.object)
 
-        position_object_desired, _ = self.bullet_client.getBasePositionAndOrientation(self.target)
+        position_object_desired, _ = self.bullet_client.getBasePositionAndOrientation(
+            self.target
+        )
         position_object_desired = np.array(position_object_desired)
 
         state = {}

@@ -60,7 +60,9 @@ if __name__ == "__main__":
     # config_robot_target = deepcopy(config_robot_source)
 
     if config_robot_target == config_robot_source:
-        logging.warning("Same source and target robot. If you are not debugging, this is probably a mistake.")
+        logging.warning(
+            "Same source and target robot. If you are not debugging, this is probably a mistake."
+        )
 
     config_task = {
         "name": "reach",

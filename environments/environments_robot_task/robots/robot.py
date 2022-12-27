@@ -12,7 +12,9 @@ import pybullet_utils.bullet_client as bc
 from gym import spaces
 from models.dht import Rescale, DHT_Model
 
-Joint = namedtuple("Joint", ["id", "initial_position", "limits", "max_velocity", "max_torque"])
+Joint = namedtuple(
+    "Joint", ["id", "initial_position", "limits", "max_velocity", "max_torque"]
+)
 Link = namedtuple("Link", ["mass", "linearDamping"])
 
 
@@ -75,14 +77,18 @@ class Robot:
 
         self.offset = np.array(offset)
 
-        self.random = np.random.RandomState(int.from_bytes(os.urandom(4), byteorder="little"))
+        self.random = np.random.RandomState(
+            int.from_bytes(os.urandom(4), byteorder="little")
+        )
 
         flags = p.URDF_MAINTAIN_LINK_ORDER
 
         if not deactivate_self_collision:
             flags |= p.URDF_USE_SELF_COLLISION
 
-        self.model_id = bullet_client.loadURDF(urdf_file, self.offset, useFixedBase=True, flags=flags)
+        self.model_id = bullet_client.loadURDF(
+            urdf_file, self.offset, useFixedBase=True, flags=flags
+        )
         self.urdf_file = urdf_file
 
         self.joint_name2id = {}
@@ -97,10 +103,14 @@ class Robot:
         self.status_hand = Robot.STATUS_HAND.OPEN
 
         for joint_name, joint_args in joints_arm.items():
-            self.joints_arm[joint_name] = Joint(self.joint_name2id[joint_name], *joint_args)
+            self.joints_arm[joint_name] = Joint(
+                self.joint_name2id[joint_name], *joint_args
+            )
 
         for joint_name, joint_args in joints_hand.items():
-            self.joints_hand[joint_name] = Joint(self.joint_name2id[joint_name], *joint_args)
+            self.joints_hand[joint_name] = Joint(
+                self.joint_name2id[joint_name], *joint_args
+            )
 
         if links is None:
             self.links = {}
@@ -115,7 +125,9 @@ class Robot:
         # define spaces
         self.action_space = spaces.Dict(
             {
-                "arm": spaces.Box(-1.0, 1.0, shape=(len(self.joints),), dtype=np.float64),
+                "arm": spaces.Box(
+                    -1.0, 1.0, shape=(len(self.joints),), dtype=np.float64
+                ),
                 "hand": spaces.Box(-1.0, 1.0, shape=(1,), dtype=np.float64),
             }
         )
@@ -123,16 +135,26 @@ class Robot:
         self.state_space = spaces.Dict(
             {
                 "arm": spaces.Dict(
-                    {"joint_positions": spaces.Box(-1.0, 1.0, shape=(len(self.joints_arm),), dtype=np.float64)}
+                    {
+                        "joint_positions": spaces.Box(
+                            -1.0, 1.0, shape=(len(self.joints_arm),), dtype=np.float64
+                        )
+                    }
                 ),
                 "hand": spaces.Box(-1.0, 1.0, shape=(1,), dtype=np.float64),
             }
         )
 
-        self.joint_limits = torch.tensor([joint.limits for joint in self.joints_arm.values()])
+        self.joint_limits = torch.tensor(
+            [joint.limits for joint in self.joints_arm.values()]
+        )
 
-        self.state2angle = Rescale(-1, 1, self.joint_limits[:, 0], self.joint_limits[:, 1])
-        self.angle2state = Rescale(self.joint_limits[:, 0], self.joint_limits[:, 1], -1, 1)
+        self.state2angle = Rescale(
+            -1, 1, self.joint_limits[:, 0], self.joint_limits[:, 1]
+        )
+        self.angle2state = Rescale(
+            self.joint_limits[:, 0], self.joint_limits[:, 1], -1, 1
+        )
 
         if dht_params is not None:
             self.dht_params = dht_params
@@ -156,7 +178,9 @@ class Robot:
     def forward_kinematics(self, angles):
         return self.dht_model(angles)
 
-    def calculate_inverse_kinematics(self, tcp_position, tcp_orientation, initial_pose=None, iters=1000):
+    def calculate_inverse_kinematics(
+        self, tcp_position, tcp_orientation, initial_pose=None, iters=1000
+    ):
 
         return None
         # conf = np.zeros_like(self.ik_model.getConfig())
@@ -197,11 +221,17 @@ class Robot:
         torques = []
 
         for (_, joint), action_joint in zip(self.joints_arm.items(), action_arm):
-            position, _, _, _ = self.bullet_client.getJointState(self.model_id, joint.id)
+            position, _, _, _ = self.bullet_client.getJointState(
+                self.model_id, joint.id
+            )
 
             normalized_joint_position = np.interp(position, joint.limits, [-1, 1])
-            normalized_target_joint_position = np.clip(normalized_joint_position + action_joint, -1, 1)
-            target_joint_position = np.interp(normalized_target_joint_position, [-1, 1], joint.limits)
+            normalized_target_joint_position = np.clip(
+                normalized_joint_position + action_joint, -1, 1
+            )
+            target_joint_position = np.interp(
+                normalized_target_joint_position, [-1, 1], joint.limits
+            )
 
             joint_ids.append(joint.id)
             target_positions.append(target_joint_position)
@@ -220,7 +250,11 @@ class Robot:
             maxVelocities.append(joint.max_velocity)
 
         self.bullet_client.setJointMotorControlArray(
-            self.model_id, joint_ids, p.POSITION_CONTROL, targetPositions=target_positions, forces=torques
+            self.model_id,
+            joint_ids,
+            p.POSITION_CONTROL,
+            targetPositions=target_positions,
+            forces=torques,
         )
 
         if np.mean(action_hand) >= 0:
@@ -236,9 +270,14 @@ class Robot:
             joint_states = self.bullet_client.getJointStates(self.model_id, joint_ids)
 
             joint_positions = np.array([joint_state[0] for joint_state in joint_states])
-            joint_velocities = np.array([joint_state[1] for joint_state in joint_states])
+            joint_velocities = np.array(
+                [joint_state[1] for joint_state in joint_states]
+            )
 
-            if max(abs(joint_velocities)) < 0.01 and max(abs(joint_positions - target_positions)) < 0.01:
+            if (
+                max(abs(joint_velocities)) < 0.01
+                and max(abs(joint_positions - target_positions)) < 0.01
+            ):
                 break
 
             if self.bullet_client.getConnectionInfo()["connectionMethod"] == p.GUI:
@@ -261,7 +300,9 @@ class Robot:
 
                 parameter_value = np.random.normal(mean, std)
 
-                self.bullet_client.changeDynamics(self.model_id, link_id, **{parameter: parameter_value})
+                self.bullet_client.changeDynamics(
+                    self.model_id, link_id, **{parameter: parameter_value}
+                )
 
         if desired_state is None:
             desired_state = {}
@@ -287,7 +328,9 @@ class Robot:
             ):
                 joint_position = np.interp(desired_state_joint, [-1, 1], joint.limits)
 
-                self.bullet_client.resetJointState(self.model_id, joint.id, joint_position)
+                self.bullet_client.resetJointState(
+                    self.model_id, joint.id, joint_position
+                )
 
             if desired_state["hand"] >= 0:
                 self.status_hand = Robot.STATUS_HAND.OPEN
@@ -295,7 +338,9 @@ class Robot:
                 self.status_hand = Robot.STATUS_HAND.CLOSING
 
             self.bullet_client.stepSimulation()
-            contact_points = self.bullet_client.getContactPoints(self.model_id, self.model_id)
+            contact_points = self.bullet_client.getContactPoints(
+                self.model_id, self.model_id
+            )
 
             if not contact_points or force:
                 break
@@ -316,7 +361,12 @@ class Robot:
         return state
 
     @staticmethod
-    def get_coordinate_system(axis_length=0.1, indicators=p.GEOM_SPHERE, indicator_size=0.01, indicator_colors=None):
+    def get_coordinate_system(
+        axis_length=0.1,
+        indicators=p.GEOM_SPHERE,
+        indicator_size=0.01,
+        indicator_colors=None,
+    ):
         coordinate_data = {
             "linkMasses": [0] * 3,
             "linkCollisionShapeIndices": [-1] * 3,
@@ -344,11 +394,17 @@ class Robot:
 
             if indicators == p.GEOM_BOX:
                 linkVisualShapeIndices.append(
-                    p.createVisualShape(p.GEOM_BOX, halfExtents=[indicator_size] * 3, rgbaColor=rgbaColor)
+                    p.createVisualShape(
+                        p.GEOM_BOX,
+                        halfExtents=[indicator_size] * 3,
+                        rgbaColor=rgbaColor,
+                    )
                 )
             elif indicators == p.GEOM_SPHERE:
                 linkVisualShapeIndices.append(
-                    p.createVisualShape(p.GEOM_SPHERE, radius=indicator_size, rgbaColor=rgbaColor)
+                    p.createVisualShape(
+                        p.GEOM_SPHERE, radius=indicator_size, rgbaColor=rgbaColor
+                    )
                 )
 
             linkPosition = [0, 0, 0]
@@ -362,8 +418,20 @@ class Robot:
         return coordinate_data
 
     def get_tcp_pose(self):
-        tcp_position, tcp_orientation, _, _, _, _, tcp_velocity, _ = self.bullet_client.getLinkState(
-            self.model_id, self.joint_name2id["tcp"], computeForwardKinematics=True, computeLinkVelocity=True
+        (
+            tcp_position,
+            tcp_orientation,
+            _,
+            _,
+            _,
+            _,
+            tcp_velocity,
+            _,
+        ) = self.bullet_client.getLinkState(
+            self.model_id,
+            self.joint_name2id["tcp"],
+            computeForwardKinematics=True,
+            computeLinkVelocity=True,
         )
 
         tcp_position = np.array(tcp_position) - self.offset
@@ -380,7 +448,9 @@ class Robot:
         for lineid in range(3):
             color = [0] * 3
             color[lineid] = 1
-            line = self.bullet_client.addUserDebugLine(position, position + length * orientation[:, lineid], color)
+            line = self.bullet_client.addUserDebugLine(
+                position, position + length * orientation[:, lineid], color
+            )
             lines.append(line)
 
         return lines
@@ -393,22 +463,33 @@ class Robot:
         joint_positions, joint_velocities = [], []
 
         for joint in self.joints:
-            joint_position, joint_velocity, _, _ = self.bullet_client.getJointState(self.model_id, joint.id)
+            joint_position, joint_velocity, _, _ = self.bullet_client.getJointState(
+                self.model_id, joint.id
+            )
 
             joint_positions.append(np.interp(joint_position, joint.limits, [-1, 1]))
-            joint_velocities.append(np.interp(joint_velocity, [-joint.max_velocity, joint.max_velocity], [-1, 1]))
+            joint_velocities.append(
+                np.interp(
+                    joint_velocity, [-joint.max_velocity, joint.max_velocity], [-1, 1]
+                )
+            )
 
         joint_positions = np.array(joint_positions)
         # joint_velocities = np.array(joint_velocities)
 
-        state = {"arm": {"joint_positions": joint_positions}, "hand": np.array(self.status_hand.value)}
+        state = {
+            "arm": {"joint_positions": joint_positions},
+            "hand": np.array(self.status_hand.value),
+        }
 
         def clip_state(state_dict, space):
             for key in state_dict:
                 if type(state_dict[key]) == dict:
                     state_dict[key] = clip_state(state_dict[key], space[key])
                 else:
-                    state_dict[key] = state_dict[key].clip(space[key].low, space[key].high)
+                    state_dict[key] = state_dict[key].clip(
+                        space[key].low, space[key].high
+                    )
             return state_dict
 
         state = clip_state(state, self.state_space)

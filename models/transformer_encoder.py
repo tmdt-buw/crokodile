@@ -9,7 +9,15 @@ from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
 class Seq2SeqTransformerEncoder(nn.Module):
     def __init__(
-        self, src_len, tgt_len, d_model=64, nhead=8, num_encoder_layers=6, dim_feedforward=2048, dropout=0.1, **kwargs
+        self,
+        src_len,
+        tgt_len,
+        d_model=64,
+        nhead=8,
+        num_encoder_layers=6,
+        dim_feedforward=2048,
+        dropout=0.1,
+        **kwargs
     ):
         super(Seq2SeqTransformerEncoder, self).__init__()
 
@@ -22,7 +30,9 @@ class Seq2SeqTransformerEncoder(nn.Module):
 
         self.encoder_tgt = nn.Conv1d(1, d_model, 1)
 
-        layer = TransformerEncoderLayer(d_model, nhead, dim_feedforward, dropout, batch_first=True)
+        layer = TransformerEncoderLayer(
+            d_model, nhead, dim_feedforward, dropout, batch_first=True
+        )
 
         self.transformer_encoder = TransformerEncoder(layer, num_encoder_layers)
 
@@ -34,7 +44,9 @@ class Seq2SeqTransformerEncoder(nn.Module):
         self.register_buffer("src_key_padding_mask", src_key_padding_mask)
 
     def forward(self, src: Tensor):
-        src = torch.nn.functional.pad(src, (0, self.max_len - self.src_len), mode="constant", value=torch.nan)
+        src = torch.nn.functional.pad(
+            src, (0, self.max_len - self.src_len), mode="constant", value=torch.nan
+        )
 
         src = src.unsqueeze(1)
 
@@ -64,7 +76,9 @@ class PositionalEncoding(nn.Module):
 
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model)
+        )
         pos_div_term = position * div_term
         pe[:, 0::2] = torch.sin(pos_div_term[:, : (d_model + 2) // 2])
         pe[:, 1::2] = torch.cos(pos_div_term[:, : d_model // 2])

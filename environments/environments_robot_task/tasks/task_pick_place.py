@@ -19,7 +19,13 @@ p.setAdditionalSearchPath(pd.getDataPath())
 
 class TaskPickPlace(Task):
     def __init__(
-        self, bullet_client, offset=(0, 0, 0), max_steps=50, accuracy=0.05, parameter_distributions=None, **kwargs
+        self,
+        bullet_client,
+        offset=(0, 0, 0),
+        max_steps=50,
+        accuracy=0.05,
+        parameter_distributions=None,
+        **kwargs
     ):
 
         super(TaskPickPlace, self).__init__(
@@ -46,13 +52,17 @@ class TaskPickPlace(Task):
             {
                 "achieved": spaces.Dict(
                     {
-                        "object_position": spaces.Box(-1, 1, shape=(3,), dtype=np.float64),
+                        "object_position": spaces.Box(
+                            -1, 1, shape=(3,), dtype=np.float64
+                        ),
                         "tcp_position": spaces.Box(-1, 1, shape=(3,), dtype=np.float64),
                     }
                 ),
                 "desired": spaces.Dict(
                     {
-                        "object_position": spaces.Box(-1, 1, shape=(3,), dtype=np.float64),
+                        "object_position": spaces.Box(
+                            -1, 1, shape=(3,), dtype=np.float64
+                        ),
                         "tcp_position": spaces.Box(-1, 1, shape=(3,), dtype=np.float64),
                     }
                 ),
@@ -62,14 +72,20 @@ class TaskPickPlace(Task):
         self.plane = bullet_client.loadURDF("plane.urdf")
 
         self.target = bullet_client.createMultiBody(
-            baseVisualShapeIndex=bullet_client.createVisualShape(p.GEOM_SPHERE, radius=0.03, rgbaColor=[0, 1, 1, 1]),
+            baseVisualShapeIndex=bullet_client.createVisualShape(
+                p.GEOM_SPHERE, radius=0.03, rgbaColor=[0, 1, 1, 1]
+            ),
         )
 
         self.tcp_object_constraint = None
 
         self.object = bullet_client.createMultiBody(
-            baseVisualShapeIndex=bullet_client.createVisualShape(p.GEOM_BOX, halfExtents=[0.025] * 3),
-            baseCollisionShapeIndex=bullet_client.createCollisionShape(p.GEOM_BOX, halfExtents=[0.025] * 3),
+            baseVisualShapeIndex=bullet_client.createVisualShape(
+                p.GEOM_BOX, halfExtents=[0.025] * 3
+            ),
+            baseCollisionShapeIndex=bullet_client.createCollisionShape(
+                p.GEOM_BOX, halfExtents=[0.025] * 3
+            ),
             baseMass=0.1,
         )
 
@@ -97,23 +113,37 @@ class TaskPickPlace(Task):
         elif done:
             reward = -1.0
         else:
-            goal_achieved_object = unwind_dict_values(goal["achieved"]["object_position"])
+            goal_achieved_object = unwind_dict_values(
+                goal["achieved"]["object_position"]
+            )
             goal_achieved_tcp = unwind_dict_values(goal["achieved"]["tcp_position"])
             goal_desired_object = unwind_dict_values(goal["desired"]["object_position"])
             goal_desired_tcp = unwind_dict_values(goal["desired"]["tcp_position"])
 
             # 0.8 * dist(obj, goal_obj), how close obj is to obj_goal
-            reward_object = np.exp(-1 * np.linalg.norm(goal_desired_object - goal_achieved_object)) - 1
+            reward_object = (
+                np.exp(-1 * np.linalg.norm(goal_desired_object - goal_achieved_object))
+                - 1
+            )
 
             # 0.2 * dist(obj, tcp), how close tcp is to obj
-            reward_tcp = np.exp(-1 * np.linalg.norm(goal_achieved_tcp - goal_desired_tcp)) - 1
+            reward_tcp = (
+                np.exp(-1 * np.linalg.norm(goal_achieved_tcp - goal_desired_tcp)) - 1
+            )
 
             # scale s.t. reward in [-1,1]
             reward = 0.8 * reward_object + 0.2 * reward_tcp
             reward /= self.max_steps
         return reward
 
-    def reset(self, desired_state=None, desired_goal=None, robot=None, state_robot=None, force=False):
+    def reset(
+        self,
+        desired_state=None,
+        desired_goal=None,
+        robot=None,
+        state_robot=None,
+        force=False,
+    ):
 
         super(TaskPickPlace, self).reset()
 
@@ -138,7 +168,9 @@ class TaskPickPlace(Task):
                 parentFramePosition=[0, 0, 0],
                 childFramePosition=[0, 0, 0],
             )
-            self.bullet_client.changeConstraint(self.tcp_object_constraint, maxForce=1e5)
+            self.bullet_client.changeConstraint(
+                self.tcp_object_constraint, maxForce=1e5
+            )
 
         def complete_state(state_dict, space):
             for key in space:
@@ -159,10 +191,16 @@ class TaskPickPlace(Task):
             desired_state_target = desired_goal["desired"]["object_position"]
 
             desired_state_object = np.array(
-                [np.interp(value, [-1, 1], limits) for value, limits in zip(desired_state_object, self.limits)]
+                [
+                    np.interp(value, [-1, 1], limits)
+                    for value, limits in zip(desired_state_object, self.limits)
+                ]
             )
             desired_state_target = np.array(
-                [np.interp(value, [-1, 1], limits) for value, limits in zip(desired_state_target, self.limits)]
+                [
+                    np.interp(value, [-1, 1], limits)
+                    for value, limits in zip(desired_state_target, self.limits)
+                ]
             )
 
             distance_target = np.linalg.norm(desired_state_target)
@@ -173,13 +211,19 @@ class TaskPickPlace(Task):
             desired_state_object += self.offset
             desired_state_target += self.offset
 
-            self.bullet_client.resetBasePositionAndOrientation(self.object, desired_state_object, [0, 0, 0, 1])
-            self.bullet_client.resetBasePositionAndOrientation(self.target, desired_state_target, [0, 0, 0, 1])
+            self.bullet_client.resetBasePositionAndOrientation(
+                self.object, desired_state_object, [0, 0, 0, 1]
+            )
+            self.bullet_client.resetBasePositionAndOrientation(
+                self.target, desired_state_target, [0, 0, 0, 1]
+            )
 
             self.bullet_client.stepSimulation()
 
             if robot:
-                contact_points = self.bullet_client.getContactPoints(robot.model_id, self.object)
+                contact_points = self.bullet_client.getContactPoints(
+                    robot.model_id, self.object
+                )
 
             if force or (not contact_points and distance_target < 0.8):
                 break
@@ -202,7 +246,9 @@ class TaskPickPlace(Task):
             elif state_robot["hand"] == robot.status_hand.CLOSING.value:  # closing
                 assert self.tcp_object_constraint is None
 
-                position_object, _ = self.bullet_client.getBasePositionAndOrientation(self.object)
+                position_object, _ = self.bullet_client.getBasePositionAndOrientation(
+                    self.object
+                )
                 position_object = np.array(position_object) - self.offset
 
                 # todo: make theshold a parameter
@@ -218,7 +264,9 @@ class TaskPickPlace(Task):
                         parentFramePosition=[0, 0, 0],
                         childFramePosition=[0, 0, 0],
                     )
-                    self.bullet_client.changeConstraint(self.tcp_object_constraint, maxForce=1e5)
+                    self.bullet_client.changeConstraint(
+                        self.tcp_object_constraint, maxForce=1e5
+                    )
 
         return super(TaskPickPlace, self).step(state_robot, robot)
 
@@ -229,26 +277,47 @@ class TaskPickPlace(Task):
         if state_robot is not None and robot is not None:
             tcp_position, _ = robot.get_tcp_pose()
             tcp_position = np.array(
-                [np.interp(value, limits, [-1, 1]) for value, limits in zip(tcp_position, self.limits)]
+                [
+                    np.interp(value, limits, [-1, 1])
+                    for value, limits in zip(tcp_position, self.limits)
+                ]
             )
 
-        position_object, _ = self.bullet_client.getBasePositionAndOrientation(self.object)
+        position_object, _ = self.bullet_client.getBasePositionAndOrientation(
+            self.object
+        )
         position_object = np.array(position_object) - self.offset
         position_object = np.array(
-            [np.interp(value, limits, [-1, 1]) for value, limits in zip(position_object, self.limits)]
+            [
+                np.interp(value, limits, [-1, 1])
+                for value, limits in zip(position_object, self.limits)
+            ]
         )
 
-        position_object_desired, _ = self.bullet_client.getBasePositionAndOrientation(self.target)
+        position_object_desired, _ = self.bullet_client.getBasePositionAndOrientation(
+            self.target
+        )
         position_object_desired = np.array(position_object_desired) - self.offset
         position_object_desired = np.array(
-            [np.interp(value, limits, [-1, 1]) for value, limits in zip(position_object_desired, self.limits)]
+            [
+                np.interp(value, limits, [-1, 1])
+                for value, limits in zip(position_object_desired, self.limits)
+            ]
         )
 
-        state = {"object_gripped": np.array([float(self.tcp_object_constraint is not None)])}
+        state = {
+            "object_gripped": np.array([float(self.tcp_object_constraint is not None)])
+        }
 
-        achieved_goal = {"object_position": position_object, "tcp_position": tcp_position}
+        achieved_goal = {
+            "object_position": position_object,
+            "tcp_position": tcp_position,
+        }
 
-        desired_goal = {"object_position": position_object_desired, "tcp_position": position_object_desired}
+        desired_goal = {
+            "object_position": position_object_desired,
+            "tcp_position": position_object_desired,
+        }
 
         goal = {
             "achieved": achieved_goal,

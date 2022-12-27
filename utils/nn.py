@@ -16,7 +16,9 @@ import torch.nn as nn
     """
 
 
-def get_weight_matrices(link_positions_X, link_positions_Y, weight_matrix_exponent_p, norm=True):
+def get_weight_matrices(
+    link_positions_X, link_positions_Y, weight_matrix_exponent_p, norm=True
+):
     """
     Generate weights based on distances between relative positions of robot links
 
@@ -31,17 +33,22 @@ def get_weight_matrices(link_positions_X, link_positions_Y, weight_matrix_expone
     """
 
     link_positions_X = torch.cat((torch.zeros(1, 3), link_positions_X))
-    link_lenghts_X = torch.norm(link_positions_X[1:] - link_positions_X[:-1], p=2, dim=-1)
+    link_lenghts_X = torch.norm(
+        link_positions_X[1:] - link_positions_X[:-1], p=2, dim=-1
+    )
     link_order_X = link_lenghts_X.cumsum(0)
     link_order_X = link_order_X / link_order_X[-1]
 
     link_positions_Y = torch.cat((torch.zeros(1, 3), link_positions_Y))
-    link_lenghts_Y = torch.norm(link_positions_Y[1:] - link_positions_Y[:-1], p=2, dim=-1)
+    link_lenghts_Y = torch.norm(
+        link_positions_Y[1:] - link_positions_Y[:-1], p=2, dim=-1
+    )
     link_order_Y = link_lenghts_Y.cumsum(0)
     link_order_Y = link_order_Y / link_order_Y[-1]
 
     weight_matrix_XY_p = torch.exp(
-        -weight_matrix_exponent_p * torch.cdist(link_order_X.unsqueeze(-1), link_order_Y.unsqueeze(-1))
+        -weight_matrix_exponent_p
+        * torch.cdist(link_order_X.unsqueeze(-1), link_order_Y.unsqueeze(-1))
     )
     weight_matrix_XY_p = torch.nan_to_num(weight_matrix_XY_p, 1.0)
 
@@ -55,8 +62,20 @@ def get_weight_matrices(link_positions_X, link_positions_Y, weight_matrix_expone
     return weight_matrix_XY_p, weight_matrix_XY_o
 
 
-def create_network(in_dim, out_dim, network_width, network_depth, dropout, out_activation=None, **kwargs):
-    network_structure = [("linear", network_width), ("relu", None), ("dropout", dropout)] * network_depth
+def create_network(
+    in_dim,
+    out_dim,
+    network_width,
+    network_depth,
+    dropout,
+    out_activation=None,
+    **kwargs,
+):
+    network_structure = [
+        ("linear", network_width),
+        ("relu", None),
+        ("dropout", dropout),
+    ] * network_depth
     network_structure.append(("linear", out_dim))
 
     if out_activation:
@@ -173,7 +192,9 @@ class ResBlock(NeuralNetwork):
 
 class Critic(NeuralNetwork):
     def __init__(self, state_dims, action_dim, network_structure):
-        in_dim = int(np.sum([np.product(arg) for arg in state_dims]) + np.product(action_dim))
+        in_dim = int(
+            np.sum([np.product(arg) for arg in state_dims]) + np.product(action_dim)
+        )
 
         super(Critic, self).__init__(in_dim, network_structure)
 
@@ -253,7 +274,9 @@ class Sawtooth(torch.nn.Module):
 
     def forward(self, input):
         # See the autograd section for explanation of what happens here.
-        return SawtoothFunction.apply(input, self.min_x, self.max_x, self.min_y, self.max_y)
+        return SawtoothFunction.apply(
+            input, self.min_x, self.max_x, self.min_y, self.max_y
+        )
 
     def extra_repr(self):
         # (Optional)Set the extra information about this module. You can test
@@ -265,7 +288,9 @@ class Pos2Pose(nn.Module):
     def forward(self, x):
         positions = x.reshape(x.shape[0], -1, 3, 1)
 
-        orientations = torch.eye(3, device=x.device).expand(positions.shape[0], positions.shape[1], 3, 3)
+        orientations = torch.eye(3, device=x.device).expand(
+            positions.shape[0], positions.shape[1], 3, 3
+        )
 
         poses = torch.cat((orientations, positions), dim=-1)
 
@@ -279,13 +304,22 @@ class Pos2Pose(nn.Module):
 
 class KinematicChainLoss(torch.nn.Module):
     def __init__(
-        self, weight_matrix_positions, weight_matrix_orientations, reduction=True, verbose_output=False, eps=1e-7
+        self,
+        weight_matrix_positions,
+        weight_matrix_orientations,
+        reduction=True,
+        verbose_output=False,
+        eps=1e-7,
     ):
         super(KinematicChainLoss, self).__init__()
 
-        self.weight_matrix_positions = torch.nn.Parameter(weight_matrix_positions, requires_grad=False)
+        self.weight_matrix_positions = torch.nn.Parameter(
+            weight_matrix_positions, requires_grad=False
+        )
 
-        self.weight_matrix_orientations = torch.nn.Parameter(weight_matrix_orientations, requires_grad=False)
+        self.weight_matrix_orientations = torch.nn.Parameter(
+            weight_matrix_orientations, requires_grad=False
+        )
 
         self.reduction = reduction
         self.verbose_output = verbose_output
@@ -318,13 +352,17 @@ class KinematicChainLoss(torch.nn.Module):
 
         # compute position loss
         # b(s*n)(t*m)
-        distance_positions = torch.cdist(X[..., :3, -1].contiguous(), Y[..., :3, -1].contiguous())
+        distance_positions = torch.cdist(
+            X[..., :3, -1].contiguous(), Y[..., :3, -1].contiguous()
+        )
         distance_positions = distance_positions.view(-1, s, m, t, n)
 
         # todo: make scaling a parameter
         # distance_positions = 1 - torch.exp(-10 * distance_positions)
 
-        loss_positions = torch.einsum("bsmtn,mn->bst", distance_positions, self.weight_matrix_positions)
+        loss_positions = torch.einsum(
+            "bsmtn,mn->bst", distance_positions, self.weight_matrix_positions
+        )
 
         # compute orientation loss
 
@@ -332,7 +370,10 @@ class KinematicChainLoss(torch.nn.Module):
         # R = P * Q^T
         # tr_R = R * eye(3)
         tr_R = torch.einsum(
-            "bsxy,btyz,xz->bst", X[..., :3, :3], torch.transpose(Y[..., :3, :3], -1, -2), torch.eye(3, device=X.device)
+            "bsxy,btyz,xz->bst",
+            X[..., :3, :3],
+            torch.transpose(Y[..., :3, :3], -1, -2),
+            torch.eye(3, device=X.device),
         )
 
         # calculate angle
@@ -340,11 +381,16 @@ class KinematicChainLoss(torch.nn.Module):
         # scale between 0 and 1
         # todo is acos (0,pi) or (-pi,pi)?
         distance_orientations = (
-            torch.acos(torch.clamp((tr_R - 1) / (2 + self.eps), -1 + self.eps, 1 - self.eps)) / np.pi
+            torch.acos(
+                torch.clamp((tr_R - 1) / (2 + self.eps), -1 + self.eps, 1 - self.eps)
+            )
+            / np.pi
         )
         distance_orientations = distance_orientations.view(-1, s, m, t, n)
 
-        loss_orientations = torch.einsum("bsmtn,mn->bst", distance_orientations, self.weight_matrix_orientations)
+        loss_orientations = torch.einsum(
+            "bsmtn,mn->bst", distance_orientations, self.weight_matrix_orientations
+        )
 
         loss = loss_positions + loss_orientations
 
@@ -362,7 +408,10 @@ if __name__ == "__main__":
     device = torch.device("cuda" if use_cuda else "cpu")
 
     network_structure = [
-        ("res_block", [("linear", 64), ("relu", None), ("dropout", 0.2), ("linear", 32)]),
+        (
+            "res_block",
+            [("linear", 64), ("relu", None), ("dropout", 0.2), ("linear", 32)],
+        ),
         ("linear", 64),
         ("relu", None),
         ("dropout", 0.2),

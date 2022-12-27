@@ -12,7 +12,9 @@ from robot import Robot, Link
 class RobotPanda(Robot):
     def __init__(self, bullet_client, **kwargs):
         # load robot in simulation
-        urdf_file = os.path.join(str(Path(__file__).absolute().parent), "Panda/panda.urdf")
+        urdf_file = os.path.join(
+            str(Path(__file__).absolute().parent), "Panda/panda.urdf"
+        )
 
         joints_arm = {
             "panda_joint1": (0, (-2.8973, 2.8973), 2.1750, 87),

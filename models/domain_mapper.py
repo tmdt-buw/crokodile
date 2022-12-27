@@ -50,7 +50,11 @@ class LitDomainMapper(pl.LightningModule):
             self.trajectory_encoder_AZ,
             self.policy_ZA,
         ) = self.get_models(
-            data_file_A, data_file_B, transition_model_config, state_mapper_config, action_mapper_config
+            data_file_A,
+            data_file_B,
+            transition_model_config,
+            state_mapper_config,
+            action_mapper_config,
         )
         (
             self.dht_model_B,
@@ -59,7 +63,11 @@ class LitDomainMapper(pl.LightningModule):
             self.trajectory_encoder_BZ,
             self.policy_ZB,
         ) = self.get_models(
-            data_file_B, data_file_A, transition_model_config, state_mapper_config, action_mapper_config
+            data_file_B,
+            data_file_A,
+            transition_model_config,
+            state_mapper_config,
+            action_mapper_config,
         )
 
         (
@@ -102,13 +110,22 @@ class LitDomainMapper(pl.LightningModule):
 
             for _ in range(states_B_.shape[-1] - 1):
                 states_B = self.state_mapper_AB(states_A, states_B_)
-                states_B_ = torch.nn.functional.pad(states_B[:, :-1], (1, 0), mode="constant", value=torch.nan)
+                states_B_ = torch.nn.functional.pad(
+                    states_B[:, :-1], (1, 0), mode="constant", value=torch.nan
+                )
 
         states_B = self.state_mapper_AB(states_A, states_B_)
 
         return states_B
 
-    def get_models(self, data_file_X, data_file_Y, transition_model_config, state_mapper_config, action_mapper_config):
+    def get_models(
+        self,
+        data_file_X,
+        data_file_Y,
+        transition_model_config,
+        state_mapper_config,
+        action_mapper_config,
+    ):
         """
         Helper function to generate all models required to learn mapping X -> Y
 
@@ -130,7 +147,8 @@ class LitDomainMapper(pl.LightningModule):
         dht_model_X = get_dht_model(data_X["dht_params"], data_X["joint_limits"])
 
         transition_model_X = create_network(
-            in_dim=data_X["trajectories_states_train"].shape[-1] + data_X["trajectories_actions_train"].shape[-1],
+            in_dim=data_X["trajectories_states_train"].shape[-1]
+            + data_X["trajectories_actions_train"].shape[-1],
             out_dim=data_X["trajectories_states_train"].shape[-1],
             **transition_model_config,
         )
@@ -145,17 +163,25 @@ class LitDomainMapper(pl.LightningModule):
             state_dim=data_X["trajectories_states_train"].shape[-1],
             action_dim=data_X["trajectories_actions_train"].shape[-1],
             behavior_dim=action_mapper_config["behavior_dim"],
-            max_len=data_X["trajectories_states_train"].shape[-1] + data_X["trajectories_actions_train"].shape[-1],
+            max_len=data_X["trajectories_states_train"].shape[-1]
+            + data_X["trajectories_actions_train"].shape[-1],
             **action_mapper_config["encoder"],
         )
 
         policy_ZX = create_network(
-            in_dim=data_X["trajectories_states_train"].shape[-1] + action_mapper_config["behavior_dim"],
+            in_dim=data_X["trajectories_states_train"].shape[-1]
+            + action_mapper_config["behavior_dim"],
             out_dim=data_X["trajectories_actions_train"].shape[-1],
             **action_mapper_config["decoder"],
         )
 
-        return dht_model_X, transition_model_X, state_mapper_XY, trajectory_encoder_XZ, policy_ZX
+        return (
+            dht_model_X,
+            transition_model_X,
+            state_mapper_XY,
+            trajectory_encoder_XZ,
+            policy_ZX,
+        )
 
     def get_loss_functions(self):
         """
@@ -173,25 +199,35 @@ class LitDomainMapper(pl.LightningModule):
 
         loss_fn_transition_model = MSELoss()
 
-        link_positions_A = self.dht_model_A(torch.zeros((1, data_A["trajectories_states_train"].shape[-1])))[
-            0, :, :3, -1
-        ]
-        link_positions_B = self.dht_model_B(torch.zeros((1, data_B["trajectories_states_train"].shape[-1])))[
-            0, :, :3, -1
-        ]
+        link_positions_A = self.dht_model_A(
+            torch.zeros((1, data_A["trajectories_states_train"].shape[-1]))
+        )[0, :, :3, -1]
+        link_positions_B = self.dht_model_B(
+            torch.zeros((1, data_B["trajectories_states_train"].shape[-1]))
+        )[0, :, :3, -1]
 
         weight_matrix_AB_p, weight_matrix_AB_o = self.get_weight_matrices(
             link_positions_A, link_positions_B, self.hparams.weight_matrix_exponent
         )
 
-        loss_fn_kinematics_AB = KinematicChainLoss(weight_matrix_AB_p, weight_matrix_AB_o, verbose_output=True)
-        loss_fn_kinematics_BA = KinematicChainLoss(weight_matrix_AB_p.T, weight_matrix_AB_o.T, verbose_output=True)
+        loss_fn_kinematics_AB = KinematicChainLoss(
+            weight_matrix_AB_p, weight_matrix_AB_o, verbose_output=True
+        )
+        loss_fn_kinematics_BA = KinematicChainLoss(
+            weight_matrix_AB_p.T, weight_matrix_AB_o.T, verbose_output=True
+        )
 
         loss_soft_dtw_AB = SoftDTW(
-            use_cuda=True, dist_func=KinematicChainLoss(weight_matrix_AB_p, weight_matrix_AB_o, reduction=False)
+            use_cuda=True,
+            dist_func=KinematicChainLoss(
+                weight_matrix_AB_p, weight_matrix_AB_o, reduction=False
+            ),
         )
         loss_soft_dtw_BA = SoftDTW(
-            use_cuda=True, dist_func=KinematicChainLoss(weight_matrix_AB_p.T, weight_matrix_AB_o.T, reduction=False)
+            use_cuda=True,
+            dist_func=KinematicChainLoss(
+                weight_matrix_AB_p.T, weight_matrix_AB_o.T, reduction=False
+            ),
         )
 
         return (
@@ -203,7 +239,9 @@ class LitDomainMapper(pl.LightningModule):
         )
 
     @staticmethod
-    def get_weight_matrices(link_positions_X, link_positions_Y, weight_matrix_exponent_p, norm=True):
+    def get_weight_matrices(
+        link_positions_X, link_positions_Y, weight_matrix_exponent_p, norm=True
+    ):
         """
         Generate weights based on distances between relative positions of robot links
 
@@ -218,17 +256,22 @@ class LitDomainMapper(pl.LightningModule):
         """
 
         link_positions_X = torch.cat((torch.zeros(1, 3), link_positions_X))
-        link_lenghts_X = torch.norm(link_positions_X[1:] - link_positions_X[:-1], p=2, dim=-1)
+        link_lenghts_X = torch.norm(
+            link_positions_X[1:] - link_positions_X[:-1], p=2, dim=-1
+        )
         link_order_X = link_lenghts_X.cumsum(0)
         link_order_X = link_order_X / link_order_X[-1]
 
         link_positions_Y = torch.cat((torch.zeros(1, 3), link_positions_Y))
-        link_lenghts_Y = torch.norm(link_positions_Y[1:] - link_positions_Y[:-1], p=2, dim=-1)
+        link_lenghts_Y = torch.norm(
+            link_positions_Y[1:] - link_positions_Y[:-1], p=2, dim=-1
+        )
         link_order_Y = link_lenghts_Y.cumsum(0)
         link_order_Y = link_order_Y / link_order_Y[-1]
 
         weight_matrix_XY_p = torch.exp(
-            -weight_matrix_exponent_p * torch.cdist(link_order_X.unsqueeze(-1), link_order_Y.unsqueeze(-1))
+            -weight_matrix_exponent_p
+            * torch.cdist(link_order_X.unsqueeze(-1), link_order_Y.unsqueeze(-1))
         )
         weight_matrix_XY_p = torch.nan_to_num(weight_matrix_XY_p, 1.0)
 
@@ -290,10 +333,16 @@ class LitDomainMapper(pl.LightningModule):
         Refer to pytorch lightning docs.
         """
 
-        dataloader_validation_A = self.get_validation_dataloader(self.hparams.data_file_A)
-        dataloader_validation_B = self.get_validation_dataloader(self.hparams.data_file_B)
+        dataloader_validation_A = self.get_validation_dataloader(
+            self.hparams.data_file_A
+        )
+        dataloader_validation_B = self.get_validation_dataloader(
+            self.hparams.data_file_B
+        )
 
-        return CombinedLoader({"A": dataloader_validation_A, "B": dataloader_validation_B})
+        return CombinedLoader(
+            {"A": dataloader_validation_A, "B": dataloader_validation_B}
+        )
 
     def loss_transition_model(self, batch, transition_model, loss_fn):
         """
@@ -303,7 +352,9 @@ class LitDomainMapper(pl.LightningModule):
         trajectories_states, trajectories_actions = batch
 
         states = trajectories_states[:, :-1].reshape(-1, trajectories_states.shape[-1])
-        next_states = trajectories_states[:, :-1].reshape(-1, trajectories_states.shape[-1])
+        next_states = trajectories_states[:, :-1].reshape(
+            -1, trajectories_states.shape[-1]
+        )
 
         actions = trajectories_actions.reshape(-1, trajectories_actions.shape[-1])
 
@@ -312,7 +363,9 @@ class LitDomainMapper(pl.LightningModule):
         loss_transition_model = loss_fn(next_states_predicted, next_states)
         return loss_transition_model
 
-    def loss_state_mapper(self, batch, state_mapper_XY, dht_model_X, dht_model_Y, loss_fn):
+    def loss_state_mapper(
+        self, batch, state_mapper_XY, dht_model_X, dht_model_Y, loss_fn
+    ):
         """
         Determine loss of state mapper on batch.
         """
@@ -326,7 +379,9 @@ class LitDomainMapper(pl.LightningModule):
         link_poses_X = dht_model_X(states_X)
         link_poses_Y = dht_model_Y(states_Y)
 
-        loss_state_mapper_XY, loss_state_mapper_XY_p, loss_state_mapper_XY_o = loss_fn(link_poses_X, link_poses_Y)
+        loss_state_mapper_XY, loss_state_mapper_XY_p, loss_state_mapper_XY_o = loss_fn(
+            link_poses_X, link_poses_Y
+        )
 
         return loss_state_mapper_XY, loss_state_mapper_XY_p, loss_state_mapper_XY_o
 
@@ -382,8 +437,12 @@ class LitDomainMapper(pl.LightningModule):
         link_poses_Y = dht_model_Y(states_Y)
 
         # blp44
-        link_poses_X = link_poses_X.reshape(*trajectories_states_X.shape[:2], *link_poses_X.shape[1:])
-        link_poses_Y = link_poses_Y.reshape(*trajectories_states_Y.shape[:2], *link_poses_Y.shape[1:])
+        link_poses_X = link_poses_X.reshape(
+            *trajectories_states_X.shape[:2], *link_poses_X.shape[1:]
+        )
+        link_poses_Y = link_poses_Y.reshape(
+            *trajectories_states_Y.shape[:2], *link_poses_Y.shape[1:]
+        )
 
         loss = loss_fn(link_poses_X, link_poses_Y).mean()
 
@@ -453,29 +512,85 @@ class LitDomainMapper(pl.LightningModule):
             loss_transition_model = self.loss_transition_model(
                 batch["A"], self.transition_model_A, self.loss_fn_transition_model
             )
-            self.log(log_prefix + "loss_transition_model_A", loss_transition_model, on_step=False, on_epoch=True)
+            self.log(
+                log_prefix + "loss_transition_model_A",
+                loss_transition_model,
+                on_step=False,
+                on_epoch=True,
+            )
             return loss_transition_model
         elif optimizer_idx == 1:
             loss_transition_model = self.loss_transition_model(
                 batch["B"], self.transition_model_B, self.loss_fn_transition_model
             )
-            self.log(log_prefix + "loss_transition_model_B", loss_transition_model, on_step=False, on_epoch=True)
+            self.log(
+                log_prefix + "loss_transition_model_B",
+                loss_transition_model,
+                on_step=False,
+                on_epoch=True,
+            )
             return loss_transition_model
         elif optimizer_idx == 2:
-            loss_state_mapper, loss_state_mapper_p, loss_state_mapper_o = self.loss_state_mapper(
-                batch["A"], self.state_mapper_AB, self.dht_model_A, self.dht_model_B, self.loss_fn_kinematics_AB
+            (
+                loss_state_mapper,
+                loss_state_mapper_p,
+                loss_state_mapper_o,
+            ) = self.loss_state_mapper(
+                batch["A"],
+                self.state_mapper_AB,
+                self.dht_model_A,
+                self.dht_model_B,
+                self.loss_fn_kinematics_AB,
             )
-            self.log(log_prefix + "loss_state_mapper_AB", loss_state_mapper, on_step=False, on_epoch=True)
-            self.log(log_prefix + "loss_state_mapper_AB_p", loss_state_mapper_p, on_step=False, on_epoch=True)
-            self.log(log_prefix + "loss_state_mapper_AB_o", loss_state_mapper_o, on_step=False, on_epoch=True)
+            self.log(
+                log_prefix + "loss_state_mapper_AB",
+                loss_state_mapper,
+                on_step=False,
+                on_epoch=True,
+            )
+            self.log(
+                log_prefix + "loss_state_mapper_AB_p",
+                loss_state_mapper_p,
+                on_step=False,
+                on_epoch=True,
+            )
+            self.log(
+                log_prefix + "loss_state_mapper_AB_o",
+                loss_state_mapper_o,
+                on_step=False,
+                on_epoch=True,
+            )
             return loss_state_mapper
         elif optimizer_idx == 3:
-            loss_state_mapper, loss_state_mapper_p, loss_state_mapper_o = self.loss_state_mapper(
-                batch["B"], self.state_mapper_BA, self.dht_model_B, self.dht_model_A, self.loss_fn_kinematics_BA
+            (
+                loss_state_mapper,
+                loss_state_mapper_p,
+                loss_state_mapper_o,
+            ) = self.loss_state_mapper(
+                batch["B"],
+                self.state_mapper_BA,
+                self.dht_model_B,
+                self.dht_model_A,
+                self.loss_fn_kinematics_BA,
             )
-            self.log(log_prefix + "loss_state_mapper_BA", loss_state_mapper, on_step=False, on_epoch=True)
-            self.log(log_prefix + "loss_state_mapper_BA_p", loss_state_mapper_p, on_step=False, on_epoch=True)
-            self.log(log_prefix + "loss_state_mapper_BA_o", loss_state_mapper_o, on_step=False, on_epoch=True)
+            self.log(
+                log_prefix + "loss_state_mapper_BA",
+                loss_state_mapper,
+                on_step=False,
+                on_epoch=True,
+            )
+            self.log(
+                log_prefix + "loss_state_mapper_BA_p",
+                loss_state_mapper_p,
+                on_step=False,
+                on_epoch=True,
+            )
+            self.log(
+                log_prefix + "loss_state_mapper_BA_o",
+                loss_state_mapper_o,
+                on_step=False,
+                on_epoch=True,
+            )
             return loss_state_mapper
         elif optimizer_idx == 4:
             loss_action_mapper = self.loss_action_mapper(
@@ -488,7 +603,12 @@ class LitDomainMapper(pl.LightningModule):
                 self.transition_model_B,
                 self.loss_fn_soft_dtw_AB,
             )
-            self.log(log_prefix + "loss_action_mapper_AB", loss_action_mapper, on_step=False, on_epoch=True)
+            self.log(
+                log_prefix + "loss_action_mapper_AB",
+                loss_action_mapper,
+                on_step=False,
+                on_epoch=True,
+            )
             return loss_action_mapper
         elif optimizer_idx == 5:
             loss_action_mapper = self.loss_action_mapper(
@@ -501,7 +621,12 @@ class LitDomainMapper(pl.LightningModule):
                 self.transition_model_A,
                 self.loss_fn_soft_dtw_BA,
             )
-            self.log(log_prefix + "loss_action_mapper_BA", loss_action_mapper, on_step=False, on_epoch=True)
+            self.log(
+                log_prefix + "loss_action_mapper_BA",
+                loss_action_mapper,
+                on_step=False,
+                on_epoch=True,
+            )
             return loss_action_mapper
 
     def configure_optimizers(self):
@@ -511,16 +636,20 @@ class LitDomainMapper(pl.LightningModule):
         """
 
         optimizer_transition_model_A = torch.optim.AdamW(
-            self.transition_model_A.parameters(), lr=self.hparams.transition_model_config.get("lr", 3e-4)
+            self.transition_model_A.parameters(),
+            lr=self.hparams.transition_model_config.get("lr", 3e-4),
         )
         optimizer_transition_model_B = torch.optim.AdamW(
-            self.transition_model_B.parameters(), lr=self.hparams.transition_model_config.get("lr", 3e-4)
+            self.transition_model_B.parameters(),
+            lr=self.hparams.transition_model_config.get("lr", 3e-4),
         )
         optimizer_state_mapper_AB = torch.optim.AdamW(
-            self.state_mapper_AB.parameters(), lr=self.hparams.state_mapper_config.get("lr", 3e-4)
+            self.state_mapper_AB.parameters(),
+            lr=self.hparams.state_mapper_config.get("lr", 3e-4),
         )
         optimizer_state_mapper_BA = torch.optim.AdamW(
-            self.state_mapper_BA.parameters(), lr=self.hparams.state_mapper_config.get("lr", 3e-4)
+            self.state_mapper_BA.parameters(),
+            lr=self.hparams.state_mapper_config.get("lr", 3e-4),
         )
         optimizer_action_mapper_AB = torch.optim.AdamW(
             chain(self.trajectory_encoder_AZ.parameters(), self.policy_ZB.parameters()),
@@ -604,12 +733,20 @@ if __name__ == "__main__":
         "max_epochs": 1_000,
     }
 
-    domain_mapper = LitDomainMapper(data_file_A="panda_5_10_10.pt", data_file_B="ur5_5_10_10.pt", **config)
+    domain_mapper = LitDomainMapper(
+        data_file_A="panda_5_10_10.pt", data_file_B="ur5_5_10_10.pt", **config
+    )
 
     wandb_logger = WandbLogger(**wandb_config, log_model=True)
 
     domain_mapper.configure_components(["t"])
-    trainer = pl.Trainer(max_epochs=1, max_time="00:07:55:00", accelerator="gpu", devices=-1, logger=wandb_logger)
+    trainer = pl.Trainer(
+        max_epochs=1,
+        max_time="00:07:55:00",
+        accelerator="gpu",
+        devices=-1,
+        logger=wandb_logger,
+    )
     trainer.fit(domain_mapper)
 
     # trainer.save_checkpoint("../data/domain_mapper_dummy.chkp")

@@ -16,13 +16,22 @@ import torch
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger, TensorBoardLogger
 from pytorch_lightning.strategies import DDPStrategy
-from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor
+from pytorch_lightning.callbacks import (
+    ModelCheckpoint,
+    EarlyStopping,
+    LearningRateMonitor,
+)
 
 from multiprocessing import cpu_count, set_start_method
 
 from config import wandb_config
 
-from utils.nn import NeuralNetwork, KinematicChainLoss, init_xavier_uniform, create_network
+from utils.nn import (
+    NeuralNetwork,
+    KinematicChainLoss,
+    init_xavier_uniform,
+    create_network,
+)
 from models.dht import get_dht_model
 from models.transformer import Seq2SeqTransformer
 
@@ -30,7 +39,9 @@ from config import data_folder
 
 
 class LitStateMapper(pl.LightningModule):
-    def __init__(self, data_file, state_mapper_config={}, batch_size=32, num_workers=1, **kwargs):
+    def __init__(
+        self, data_file, state_mapper_config={}, batch_size=32, num_workers=1, **kwargs
+    ):
         super(LitStateMapper, self).__init__()
         self.save_hyperparameters()
 
@@ -41,11 +52,15 @@ class LitStateMapper(pl.LightningModule):
         data_B = data["B"]
 
         self.state_mapper_AB = create_network(
-            in_dim=data_A["states_train"].shape[1], out_dim=data_B["states_train"].shape[1], **state_mapper_config
+            in_dim=data_A["states_train"].shape[1],
+            out_dim=data_B["states_train"].shape[1],
+            **state_mapper_config,
         )
 
         self.transition_model_B = create_network(
-            in_dim=data_A["states_train"].shape[1], out_dim=data_B["states_train"].shape[1], **state_mapper_config
+            in_dim=data_A["states_train"].shape[1],
+            out_dim=data_B["states_train"].shape[1],
+            **state_mapper_config,
         )
 
         # self.state_mapper_BA = torch.nn.Sequential(
@@ -160,13 +175,16 @@ class LitStateMapper(pl.LightningModule):
     def step(self, batch, batch_idx=None):
         states_A, states_B = batch
 
-        states_B_ = torch.nn.functional.pad(states_B[:, :-1], (1, 0), mode="constant", value=torch.nan)
+        states_B_ = torch.nn.functional.pad(
+            states_B[:, :-1], (1, 0), mode="constant", value=torch.nan
+        )
 
         states_B_pred = self.state_mapper_AB(states_A, states_B_)
         # states_A_ = self.state_mapper_BA(states_B)
 
         loss_AB = self.loss_fn(
-            self.dht_model_B(states_B_pred)[:, -1, :3, -1], self.dht_model_B(states_B)[:, -1, :3, -1]
+            self.dht_model_B(states_B_pred)[:, -1, :3, -1],
+            self.dht_model_B(states_B)[:, -1, :3, -1],
         )
         # loss_BA = self.loss_fn(states_A_, states_A)
 
@@ -187,13 +205,16 @@ class LitStateMapper(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer_state_mapper_AB = torch.optim.Adam(
-            self.state_mapper_AB.parameters(), lr=self.hparams.state_mapper_config.get("lr", 3e-4)
+            self.state_mapper_AB.parameters(),
+            lr=self.hparams.state_mapper_config.get("lr", 3e-4),
         )
         # optimizer_state_mapper_BA = torch.optim.Adam(self.state_mapper_BA.parameters(),
         #                                              lr=self.hparams.state_mapper_lr)
 
         scheduler_state_mapper_AB = {
-            "scheduler": ReduceLROnPlateau(optimizer_state_mapper_AB, factor=0.9, patience=100),
+            "scheduler": ReduceLROnPlateau(
+                optimizer_state_mapper_AB, factor=0.9, patience=100
+            ),
             "monitor": "validation_loss_state_mapper_AB",
             "name": "scheduler_optimizer_state_mapper_AB",
         }

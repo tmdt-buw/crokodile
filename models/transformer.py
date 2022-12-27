@@ -33,7 +33,13 @@ class Seq2SeqTransformer(nn.Module):
         self.encoder_sot = nn.Conv1d(3, d_model, 1)
 
         self.transformer = Transformer(
-            d_model, nhead, num_encoder_layers, num_decoder_layers, dim_feedforward, dropout, batch_first=True
+            d_model,
+            nhead,
+            num_encoder_layers,
+            num_decoder_layers,
+            dim_feedforward,
+            dropout,
+            batch_first=True,
         )
 
         self.decoder_out = nn.Conv1d(d_model, 1, 1)
@@ -115,7 +121,9 @@ class PositionalEncoding(nn.Module):
 
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model)
+        )
         pos_div_term = position * div_term
         pe[:, 0::2] = torch.sin(pos_div_term[:, : (d_model + 2) // 2])
         pe[:, 1::2] = torch.cos(pos_div_term[:, : d_model // 2])

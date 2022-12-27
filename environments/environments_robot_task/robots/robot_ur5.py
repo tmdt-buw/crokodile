@@ -17,7 +17,13 @@ from robot import Robot, Link
 
 class RobotUR5(Robot):
     def __init__(
-        self, bullet_client=None, offset=(0, 0, 0), sim_time=0.0, scale=1.0, parameter_distributions=None, **kwargs
+        self,
+        bullet_client=None,
+        offset=(0, 0, 0),
+        sim_time=0.0,
+        scale=1.0,
+        parameter_distributions=None,
+        **kwargs
     ):
         if parameter_distributions is not None:
             logging.warning("Domain randomization not implemented for UR5")
@@ -86,16 +92,26 @@ class RobotUR5(Robot):
             T_0E = T_0E.unsqueeze(0)
 
         # T_6E is constant and known, so T_06 = T_0E * T_E6 can be derived
-        T_06 = torch.einsum("axy,oyz->axz", T_0E, self.dht_model.transformations[6](torch.empty(1, 1)).inverse())
+        T_06 = torch.einsum(
+            "axy,oyz->axz",
+            T_0E,
+            self.dht_model.transformations[6](torch.empty(1, 1)).inverse(),
+        )
 
         # theta 5 is still unknown, but the translation_5 is independent, so we can use an arbitrary angle
         # IMPORTANT: T_05_ is not the actual T_05, but only used to extract the P_5
-        T_05_ = torch.einsum("axy,oyz->axz", T_06, self.dht_model.transformations[5](torch.empty(1, 1)).inverse())
+        T_05_ = torch.einsum(
+            "axy,oyz->axz",
+            T_06,
+            self.dht_model.transformations[5](torch.empty(1, 1)).inverse(),
+        )
         P_5 = T_05_[:, :3, -1]
 
         # Theta 1
         theta_1_a = torch.atan2(P_5[:, 1:2], P_5[:, 0:1]) + 0.5 * torch.pi
-        theta_1_b = torch.acos(self.dht_params[3]["d"] / (P_5[:, 0:1] ** 2 + P_5[:, 1:2] ** 2) ** 0.5)
+        theta_1_b = torch.acos(
+            self.dht_params[3]["d"] / (P_5[:, 0:1] ** 2 + P_5[:, 1:2] ** 2) ** 0.5
+        )
 
         # 2 solutions
         theta_1 = torch.concat((theta_1_a + theta_1_b, theta_1_a - theta_1_b), axis=-1)
@@ -140,25 +156,41 @@ class RobotUR5(Robot):
         T_05 = torch.einsum(
             "axy,apyz->apxz",
             T_06,
-            self.dht_model.transformations[5](theta_6.reshape(-1, 1)).reshape(*theta_6.shape, 4, 4).inverse(),
+            self.dht_model.transformations[5](theta_6.reshape(-1, 1))
+            .reshape(*theta_6.shape, 4, 4)
+            .inverse(),
         )
         T_04 = torch.einsum(
             "apxy,apyz->apxz",
             T_05,
-            self.dht_model.transformations[4](theta_5.reshape(-1, 1)).reshape(*theta_5.shape, 4, 4).inverse(),
+            self.dht_model.transformations[4](theta_5.reshape(-1, 1))
+            .reshape(*theta_5.shape, 4, 4)
+            .inverse(),
         )
 
-        T_01 = self.dht_model.transformations[0](theta_1.reshape(-1, 1)).reshape(*theta_1.shape, 4, 4)
+        T_01 = self.dht_model.transformations[0](theta_1.reshape(-1, 1)).reshape(
+            *theta_1.shape, 4, 4
+        )
 
-        T_03_ = torch.einsum("apxy,ayz->apxz", T_04, self.dht_model.transformations[3](torch.empty(1, 1)).inverse())
-        T_13_ = torch.einsum("apxy,apyz->apxz", T_01.repeat(1, 2, 1, 1).inverse(), T_03_)
+        T_03_ = torch.einsum(
+            "apxy,ayz->apxz",
+            T_04,
+            self.dht_model.transformations[3](torch.empty(1, 1)).inverse(),
+        )
+        T_13_ = torch.einsum(
+            "apxy,apyz->apxz", T_01.repeat(1, 2, 1, 1).inverse(), T_03_
+        )
 
         P_13 = T_13_[:, :, :3, -1]
 
         P_13_xy_length = torch.linalg.norm(P_13[:, :, :2], axis=-1)
 
         theta_3_ = torch.acos(
-            (P_13_xy_length**2 - self.dht_params[1]["a"] ** 2 - self.dht_params[2]["a"] ** 2)
+            (
+                P_13_xy_length**2
+                - self.dht_params[1]["a"] ** 2
+                - self.dht_params[2]["a"] ** 2
+            )
             / (2 * self.dht_params[1]["a"] * self.dht_params[2]["a"])
         )
 
@@ -173,8 +205,12 @@ class RobotUR5(Robot):
         )
 
         # Theta 4
-        T_12 = self.dht_model.transformations[1](theta_2.reshape(-1, 1)).reshape(*theta_2.shape, 4, 4)
-        T_23 = self.dht_model.transformations[2](theta_3.reshape(-1, 1)).reshape(*theta_3.shape, 4, 4)
+        T_12 = self.dht_model.transformations[1](theta_2.reshape(-1, 1)).reshape(
+            *theta_2.shape, 4, 4
+        )
+        T_23 = self.dht_model.transformations[2](theta_3.reshape(-1, 1)).reshape(
+            *theta_3.shape, 4, 4
+        )
 
         T_03 = torch.einsum("apij,apjk,apkl->apil", T_01.repeat(1, 4, 1, 1), T_12, T_23)
 
@@ -183,7 +219,15 @@ class RobotUR5(Robot):
         theta_4 = torch.atan2(T_34[:, :, 1, 0], T_34[:, :, 0, 0])
 
         solutions = torch.stack(
-            (theta_1.repeat(1, 4), theta_2, theta_3, theta_4, theta_5.repeat(1, 2), theta_6.repeat(1, 2)), dim=-1
+            (
+                theta_1.repeat(1, 4),
+                theta_2,
+                theta_3,
+                theta_4,
+                theta_5.repeat(1, 2),
+                theta_6.repeat(1, 2),
+            ),
+            dim=-1,
         )
 
         return solutions
@@ -220,7 +264,9 @@ if __name__ == "__main__":
 
     object = p.createMultiBody(
         baseVisualShapeIndex=p.createVisualShape(p.GEOM_BOX, halfExtents=[0.5] * 3),
-        baseCollisionShapeIndex=p.createCollisionShape(p.GEOM_BOX, halfExtents=[0.5] * 3),
+        baseCollisionShapeIndex=p.createCollisionShape(
+            p.GEOM_BOX, halfExtents=[0.5] * 3
+        ),
         baseMass=0.0,
     )
 

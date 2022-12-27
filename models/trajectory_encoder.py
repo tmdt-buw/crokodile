@@ -38,7 +38,12 @@ class TrajectoryEncoder(nn.Module):
         self.encoder_action = nn.Conv1d(action_dim, d_model, 1)
 
         encoder_layers = TransformerEncoderLayer(
-            d_model, nhead, dim_feedforward, dropout, activation="gelu", batch_first=True
+            d_model,
+            nhead,
+            dim_feedforward,
+            dropout,
+            activation="gelu",
+            batch_first=True,
         )
         self.transformer_encoder = TransformerEncoder(encoder_layers, num_layers)
 
@@ -49,7 +54,9 @@ class TrajectoryEncoder(nn.Module):
         actions_ = self.encoder_action(actions.swapdims(1, 2))
         actions_ = torch.nn.functional.pad(actions_, (0, 1), value=torch.nan)
 
-        states_actions = torch.stack((states_, actions_), dim=-1).view(*states_.shape[:2], -1)
+        states_actions = torch.stack((states_, actions_), dim=-1).view(
+            *states_.shape[:2], -1
+        )
         states_actions = states_actions[:, :, :-1]
 
         # padding = self.max_len - states_actions.shape[-1]
@@ -71,7 +78,9 @@ class PositionalEncoding(nn.Module):
 
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model)
+        )
         pos_div_term = position * div_term
         pe[:, 0::2] = torch.sin(pos_div_term[:, : (d_model + 2) // 2])
         pe[:, 1::2] = torch.cos(pos_div_term[:, : d_model // 2])

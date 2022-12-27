@@ -29,7 +29,12 @@ expert_A = get_expert(env_A)
 env_B = get_env(
     {
         "name": "robot-task",
-        "robot_config": {"name": "ur5", "scale": 0.1, "sim_time": 0.1, "offset": (1, 0, 0)},
+        "robot_config": {
+            "name": "ur5",
+            "scale": 0.1,
+            "sim_time": 0.1,
+            "offset": (1, 0, 0),
+        },
         "task_config": {"name": "pick_place", "offset": (1, 0, 0)},
         "bullet_client": p,
     }
@@ -43,20 +48,24 @@ for link_A in range(p.getNumJoints(env_A.robot.model_id)):
 for link_B in range(p.getNumJoints(env_B.robot.model_id)):
     p.setCollisionFilterGroupMask(env_B.robot.model_id, link_B, 0, 0)
 
-link_positions_A = env_A.robot.forward_kinematics(torch.Tensor([env_A.robot.get_state()["arm"]["joint_positions"]]))[
-    0, :, :3, -1
-]
-link_positions_B = env_B.robot.forward_kinematics(torch.Tensor([env_B.robot.get_state()["arm"]["joint_positions"]]))[
-    0, :, :3, -1
-]
+link_positions_A = env_A.robot.forward_kinematics(
+    torch.Tensor([env_A.robot.get_state()["arm"]["joint_positions"]])
+)[0, :, :3, -1]
+link_positions_B = env_B.robot.forward_kinematics(
+    torch.Tensor([env_B.robot.get_state()["arm"]["joint_positions"]])
+)[0, :, :3, -1]
 
-weight_matrix_p, weight_matrix_o = get_weight_matrices(link_positions_A, link_positions_B, 100)
+weight_matrix_p, weight_matrix_o = get_weight_matrices(
+    link_positions_A, link_positions_B, 100
+)
 
 kcl_loss = KinematicChainLoss(weight_matrix_p, weight_matrix_o, reduction=False)
 
 
 def map_state(state_A, init_state_B=None):
-    angles_A = env_A.robot.state2angle(torch.Tensor([state_A["robot"]["arm"]["joint_positions"]]))
+    angles_A = env_A.robot.state2angle(
+        torch.Tensor([state_A["robot"]["arm"]["joint_positions"]])
+    )
 
     poses_A = env_A.robot.forward_kinematics(angles_A)
     # print(angles_A)
@@ -103,7 +112,10 @@ while len(bc_states_B) < 100:
     state_B = map_state(state_A)
 
     if state_B is not None:
-        env_B.reset({"state": {"robot": {"arm": {"joint_positions": state_B}}}, "goal": goal}, force=True)
+        env_B.reset(
+            {"state": {"robot": {"arm": {"joint_positions": state_B}}}, "goal": goal},
+            force=True,
+        )
     else:
         env_B.reset({"goal": goal}, force=True)
 
@@ -139,12 +151,20 @@ while len(bc_states_B) < 100:
                         action_B["arm"] = torch.clip(action_B["arm"], -1, 1)
 
                     observation_B, reward_B, done_B, info_B = env_B.step(action_B)
-                    state_B = torch.Tensor(observation_B["state"]["robot"]["arm"]["joint_positions"])
+                    state_B = torch.Tensor(
+                        observation_B["state"]["robot"]["arm"]["joint_positions"]
+                    )
 
                     if not multistep:
                         break
             else:
-                env_B.reset({"state": {"robot": {"arm": {"joint_positions": state_B_}}}, "goal": goal}, force=True)
+                env_B.reset(
+                    {
+                        "state": {"robot": {"arm": {"joint_positions": state_B_}}},
+                        "goal": goal,
+                    },
+                    force=True,
+                )
                 trajectory_B = []
 
     print(len(trajectory_B))
