@@ -13,7 +13,7 @@ black:
     name: cytopia/black:latest-py3.8
     entrypoint: ["/bin/ash", "-c"]
   script:
-    - python3 -m black --check -l 120 .
+    - python3 -m black --check .
 
 flake8:
   stage: linting
