@@ -1,12 +1,11 @@
 import hashlib
 import json
 import logging
-import sys
+import shutil
 import os
 import re
 from copy import deepcopy
 
-from pathlib import Path
 import tempfile
 import numpy as np
 from collections import defaultdict
@@ -38,6 +37,7 @@ class Stage:
     def __init__(self, config):
         self.config = config
         self.hash = self.get_config_hash(config)
+        self.tmpdir = tempfile.mkdtemp()
 
         if "cache" not in config or config["cache"]["mode"] == "disabled":
             load = False
@@ -63,8 +63,14 @@ class Stage:
                 save = save.get(self.__class__.__name__, False)
 
             assert (
-                type(load) is bool and type(save) is bool
+                    type(load) is bool and type(save) is bool
             ), f"Invalid cache config: {config['cache']}"
+
+        logging.info(f"Stage {self.__class__.__name__}:"
+                     f"hash: {self.hash}, "
+                     f"tmpdir: {self.tmpdir}, "
+                     f"load: {load}, "
+                     f"save: {save}")
 
         if load:
             try:
@@ -73,10 +79,12 @@ class Stage:
                 self.load()
                 # Don't save again if we loaded
                 save = False
-            except:
+            except Exception as e:
                 logging.warning(
-                    f"Loading cache not possible for {self.__class__.__name__}. Generating instead."
+                    f"Loading cache not possible "
+                    f"for {self.__class__.__name__}. "
                 )
+                logging.exception(e)
                 self.generate()
         else:
             logging.info(f"Generating {self.__class__.__name__}.")
@@ -87,6 +95,9 @@ class Stage:
             logging.info(f"Saving {self.__class__.__name__}.")
 
             self.save()
+
+    def __del__(self):
+        shutil.rmtree(self.tmpdir)
 
     def generate(self):
         raise NotImplementedError(
@@ -131,13 +142,15 @@ class Trainer(Stage):
 
     def save(self, path=None):
         if path is None and self.config["cache"]["mode"] == "wandb":
-            with tempfile.TemporaryDirectory() as tmpdir, wandb.init(
-                id=self.run_id, **self.config["wandb_config"], resume="must"
+            with wandb.init(
+                    id=self.run_id, **self.config["wandb_config"],
+                    resume="must"
             ) as run:
-                self.save(tmpdir)
+                self.save(self.tmpdir)
 
-                artifact = wandb.Artifact(name=self.hash, type=self.__class__.__name__)
-                artifact.add_dir(tmpdir)
+                artifact = wandb.Artifact(name=self.hash,
+                                          type=self.__class__.__name__)
+                artifact.add_dir(self.tmpdir)
                 run.log_artifact(artifact)
         elif os.path.exists(path):
             self.model.save(path)
@@ -151,20 +164,31 @@ class Trainer(Stage):
         if path is None and self.config["cache"]["mode"] == "wandb":
             wandb_config = self.config["wandb_config"]
             wandb_checkpoint_path = (
-                f"{wandb_config['entity']}/{wandb_config['project']}/{self.hash}:latest"
+                f"{wandb_config['entity']}/"
+                f"{wandb_config['project']}/"
+                f"{self.hash}:latest"
             )
             logging.info(f"wandb artifact: {wandb_checkpoint_path}")
 
-            with tempfile.TemporaryDirectory() as tmpdir:
-                download_folder = (
-                    wandb.Api().artifact(wandb_checkpoint_path).download(tmpdir)
+            wandb.Api().artifact(wandb_checkpoint_path).download(self.tmpdir)
+
+            checkpoint_folders = [
+                f
+                for f in os.listdir(self.tmpdir)
+                if re.match("^checkpoint_\d+$", f)
+            ]
+
+            assert checkpoint_folders, f"No checkpoints found in {self.tmpdir}"
+
+            if len(checkpoint_folders) > 1:
+                logging.warning(
+                    f"More than one checkpoint folder found: "
+                    f"{checkpoint_folders}"
                 )
 
-                checkpoint_folder = os.path.join(
-                    download_folder, os.listdir(download_folder)[0]
-                )
+            checkpoint_path = os.path.join(self.tmpdir, checkpoint_folders[0])
 
-                self.load(checkpoint_folder)
+            self.load(checkpoint_path)
         elif os.path.exists(path):
             self.model_config.update({"num_workers": 1, "num_gpus": 0})
             self.model = self.model_cls(self.model_config)
@@ -177,14 +201,15 @@ class Trainer(Stage):
 
     def train(self, max_epochs: int, success_threshold: float = 1.0):
         logging.info(
-            f"Train {self.__class__.__name__} for {max_epochs} epochs or until success ratio of {success_threshold} is achieved."
+            f"Train {self.__class__.__name__} for {max_epochs} epochs "
+            f"or until success ratio of {success_threshold} is achieved."
         )
 
         with wandb.init(
-            config=self.get_relevant_config(self.config),
-            **self.config["wandb_config"],
-            group=self.__class__.__name__,
-            tags=[self.hash],
+                config=self.get_relevant_config(self.config),
+                **self.config["wandb_config"],
+                group=self.__class__.__name__,
+                tags=[self.hash],
         ) as run:
             self.run_id = run.id
             pbar = tqdm(range(max_epochs))
@@ -195,8 +220,10 @@ class Trainer(Stage):
                 if "evaluation" in results:
                     results = results["evaluation"]
 
-                episode_reward_mean = results.get("episode_reward_mean", np.nan)
-                success_mean = results["custom_metrics"].get("success_mean", np.nan)
+                episode_reward_mean = results.get("episode_reward_mean",
+                                                  np.nan)
+                success_mean = results["custom_metrics"].get("success_mean",
+                                                             np.nan)
 
                 description = ""
 
@@ -221,14 +248,11 @@ class Trainer(Stage):
 
                 if description:
                     pbar.set_description(
-                        f"avg. reward={results['episode_reward_mean']:.3f} | "
-                        f"success ratio={results['custom_metrics'].get('success_mean', np.nan):.3f}"
+                        f"avg. reward={episode_reward_mean:.3f} | "
+                        f"success ratio={success_mean:.3f}"
                     )
 
-                if (
-                    results["custom_metrics"].get("success_mean", -1)
-                    > success_threshold
-                ):
+                if success_mean > success_threshold:
                     break
 
     @classmethod
@@ -251,13 +275,15 @@ class Mapper(Stage):
 
         if robot_source_config == robot_target_config:
             logging.warning(
-                "Same source and target robot. If you are not debugging, this is probably a mistake."
+                "Same source and target robot. "
+                "If you are not debugging, this is probably a mistake."
             )
             return super(Mapper, cls).__new__(cls)
         elif config["Mapper"]["type"] == "explicit":
             return super(Mapper, cls).__new__(MapperExplicit)
         else:
-            raise ValueError(f"Invalid mapper type: {config['Mapper']['type']}")
+            raise ValueError(
+                f"Invalid mapper type: {config['Mapper']['type']}")
 
     def generate(self):
         # No need to generate anything
@@ -311,12 +337,14 @@ class MapperExplicit(Mapper):
         return {
             "EnvSource": {
                 "env_config": {
-                    "robot_config": config["EnvSource"]["env_config"]["robot_config"]
+                    "robot_config": config["EnvSource"]["env_config"][
+                        "robot_config"]
                 }
             },
             "robot_target": {
                 "env_config": {
-                    "robot_config": config["EnvTarget"]["env_config"]["robot_config"]
+                    "robot_config": config["EnvTarget"]["env_config"][
+                        "robot_config"]
                 }
             },
         }
@@ -336,26 +364,30 @@ class MapperExplicit(Mapper):
                 for obs in trajectory["obs"]
             ]
         )
-        joint_positions_source = torch.from_numpy(joint_positions_source).float()
+        joint_positions_source = torch.from_numpy(
+            joint_positions_source).float()
 
-        joint_angles_source = self.robot_source.state2angle(joint_positions_source)
-        tcp_poses = self.robot_source.forward_kinematics(joint_angles_source)[:, -1]
+        joint_angles_source = self.robot_source.state2angle(
+            joint_positions_source)
+        tcp_poses = self.robot_source.forward_kinematics(
+            joint_angles_source)[:, -1]
         joint_angles_target = self.robot_target.inverse_kinematics(tcp_poses)
 
         # map joint angles inside joint limits (if possible)
         while (
-            mask := joint_angles_target < self.robot_target.joint_limits[:, 0]
+                mask := joint_angles_target <
+                        self.robot_target.joint_limits[:, 0]
         ).any():
             joint_angles_target[mask] += 2 * np.pi
 
         while (
-            mask := joint_angles_target > self.robot_target.joint_limits[:, 1]
+                mask := joint_angles_target > self.robot_target.joint_limits[:,
+                                              1]
         ).any():
             joint_angles_target[mask] -= 2 * np.pi
 
-        mask = (joint_angles_target < self.robot_target.joint_limits[:, 0]) & (
-            joint_angles_target > self.robot_target.joint_limits[:, 1]
-        )
+        mask = (joint_angles_target < self.robot_target.joint_limits[:, 0]) & \
+               (joint_angles_target > self.robot_target.joint_limits[:, 1])
 
         # invalidate states which are outside of joint limits
         joint_angles_target[mask] = torch.nan
@@ -366,7 +398,8 @@ class MapperExplicit(Mapper):
                 "At least one state from trajectory could not be mapped."
             )
 
-        joint_positions_target = self.robot_target.angle2state(joint_angles_target)
+        joint_positions_target = self.robot_target.angle2state(
+            joint_angles_target)
 
         G = nx.DiGraph()
         G.add_node("start")
@@ -374,7 +407,8 @@ class MapperExplicit(Mapper):
 
         # add edges from start to first states
         for nn, jp in enumerate(joint_positions_target[0]):
-            G.add_edge("s", f"0/{nn}", attr={"from": -1, "to": None, "weight": 0.0})
+            G.add_edge("s", f"0/{nn}",
+                       attr={"from": -1, "to": None, "weight": 0.0})
 
         # add edges from last states to end
         for nn, jp in enumerate(joint_positions_target[-1]):
@@ -389,7 +423,7 @@ class MapperExplicit(Mapper):
             )
 
         for nn, (jp, jp_next) in enumerate(
-            zip(joint_positions_target[:-1], joint_positions_target[1:])
+                zip(joint_positions_target[:-1], joint_positions_target[1:])
         ):
             actions = (jp_next.unsqueeze(0) - jp.unsqueeze(1)) / self.robot_target.scale
 
@@ -416,8 +450,10 @@ class MapperExplicit(Mapper):
         path = nx.dijkstra_path(G, "s", "e")[1:-1]
 
         idx = [int(node.split("/")[1]) for node in path]
-        best_states = joint_positions_target[range(len(joint_positions_target)), idx]
-        best_actions = (best_states[1:] - best_states[:-1]) / self.robot_target.scale
+        best_states = joint_positions_target[
+            range(len(joint_positions_target)), idx]
+        best_actions = (best_states[1:] - best_states[
+                                          :-1]) / self.robot_target.scale
 
         trajectory = deepcopy(trajectory)
 
@@ -457,16 +493,17 @@ class Demonstrations(Stage):
 
     def save(self, path=None):
         if path is None and self.config["cache"]["mode"] == "wandb":
-            with tempfile.TemporaryDirectory() as tmpdir, wandb.init(
-                config=self.get_relevant_config(self.config),
-                **self.config["wandb_config"],
-                group=self.__class__.__name__,
-                tags=[self.hash],
+            with wandb.init(
+                    config=self.get_relevant_config(self.config),
+                    **self.config["wandb_config"],
+                    group=self.__class__.__name__,
+                    tags=[self.hash],
             ):
-                self.save(tmpdir)
+                self.save(self.tmpdir)
 
-                artifact = wandb.Artifact(name=self.hash, type=self.__class__.__name__)
-                artifact.add_dir(tmpdir)
+                artifact = wandb.Artifact(name=self.hash,
+                                          type=self.__class__.__name__)
+                artifact.add_dir(self.tmpdir)
                 wandb.log_artifact(artifact)
         elif os.path.exists(path):
             writer = JsonWriter(path)
@@ -478,24 +515,20 @@ class Demonstrations(Stage):
 
     def load(self, path=None):
         if path is None and self.config["cache"]["mode"] == "wandb":
-            with tempfile.TemporaryDirectory() as tmpdir:
-                wandb_config = self.config["wandb_config"]
-                wandb_checkpoint_path = f"{wandb_config['entity']}/{wandb_config['project']}/{self.hash}:latest"
+            wandb_config = self.config["wandb_config"]
+            wandb_checkpoint_path = f"{wandb_config['entity']}/" \
+                                    f"{wandb_config['project']}/" \
+                                    f"{self.hash}:latest"
 
-                download_folder = (
-                    wandb.Api().artifact(wandb_checkpoint_path).download(tmpdir)
-                )
+            download_folder = (
+                wandb.Api().artifact(wandb_checkpoint_path).download(
+                    self.tmpdir)
+            )
 
-                checkpoint_file = [
-                    f
-                    for f in os.listdir(download_folder)
-                    if re.match("^output.*\.json$", f)
-                ][0]
-                checkpoint_path = os.path.join(download_folder, checkpoint_file)
-
-                self.load(checkpoint_path)
+            self.load(download_folder)
         elif os.path.exists(path):
-            self.trajectories = list(JsonReader(path).read_all_files())
+            logging.info(f"Loading {self.__class__.__name__} from {path}")
+            self.trajectories = JsonReader(path).read_all_files()
         else:
             raise ValueError(f"Invalid path: {path}")
 
@@ -513,20 +546,19 @@ class DemonstrationsSource(Demonstrations):
 
         if max_trials and max_trials < num_demonstrations:
             logging.warning(
-                f"max_trials ({max_trials}) is smaller than num_demonstrations ({num_demonstrations}). "
+                f"max_trials ({max_trials}) is smaller than "
+                f"num_demonstrations ({num_demonstrations}). "
                 f"Setting max_trials to num_demonstrations."
             )
             max_trials = num_demonstrations
 
         expert = Expert(self.config).model
 
-        # TODO: parallelize https://discuss.ray.io/t/sample-rule-based-expert-demonstrations-in-rllib/3065
-
         trials = 0
         self.trajectories = []
 
         with Orchestrator(
-            expert.workers.local_worker().env_context, cpu_count()
+                expert.workers.local_worker().env_context, cpu_count()
         ) as orchestrator:
             success_criterion = orchestrator.success_criterion
 
@@ -548,8 +580,8 @@ class DemonstrationsSource(Demonstrations):
                     if func == "reset":
                         if type(data) == AssertionError:
                             logging.warning(
-                                f"Resetting the environment resulted in AssertionError: {data}.\n"
-                                f"This might indicate issues, if applicable, in the choice of desired initial states."
+                                f"Resetting the environment resulted in "
+                                f"AssertionError: {data}.\n"
                                 f"The environment will be reset again."
                             )
                             requests.append((env_id, "reset", None))
@@ -557,7 +589,8 @@ class DemonstrationsSource(Demonstrations):
                             if max_trials:
                                 trials += 1
                                 pbar.set_description(
-                                    f"trials={trials}/{max_trials} ({trials / max_trials * 100:.0f}%)"
+                                    f"trials={trials}/{max_trials} "
+                                    f"({trials / max_trials * 100:.0f}%)"
                                 )
 
                             # Update eps_id
@@ -570,7 +603,8 @@ class DemonstrationsSource(Demonstrations):
                         success = success_criterion(state["goal"])
                         done |= success
 
-                        batch_builder[env_id].add_values(dones=done, rewards=reward)
+                        batch_builder[env_id].add_values(dones=done,
+                                                         rewards=reward)
 
                         if done:
                             if success or not discard_unsuccessful:
@@ -594,7 +628,7 @@ class DemonstrationsSource(Demonstrations):
                 if required_predictions:
                     # Generate predictions
                     for env_id, action in expert.compute_actions(
-                        required_predictions
+                            required_predictions
                     ).items():
                         requests.append((env_id, "step", action))
 
@@ -629,22 +663,20 @@ class DemonstrationsTarget(Demonstrations):
         demonstrations = DemonstrationsSource(self.config)
         mapper = Mapper(self.config)
 
-        mapped_trajectories = mapper.map_trajectories(demonstrations.trajectories)
-        num_demonstrations = len(demonstrations.trajectories)
-
-        del demonstrations
-        del mapper
-
         env = EnvironmentRobotTask(self.config["EnvTarget"]["env_config"])
         preprocessor_obs = get_preprocessor(env.observation_space)(
             env.observation_space
         )
-        preprocessor_actions = get_preprocessor(env.action_space)(env.action_space)
+        preprocessor_actions = get_preprocessor(env.action_space)(
+            env.action_space)
         del env
+
+        mapped_trajectories = mapper.map_trajectories(
+            demonstrations.trajectories)
 
         self.trajectories = []
 
-        for trajectory in tqdm(mapped_trajectories, total=num_demonstrations):
+        for trajectory in tqdm(mapped_trajectories):
             trajectory["obs"] = [
                 preprocessor_obs.transform(obs) for obs in trajectory["obs"]
             ]
@@ -657,8 +689,8 @@ class DemonstrationsTarget(Demonstrations):
 
         logging.info(
             f"Generated {len(self.trajectories)} target demonstrations "
-            f"from {num_demonstrations} source demonstrations "
-            f"({len(self.trajectories) / num_demonstrations * 100:1f}%)."
+            # f"from {num_demonstrations} source demonstrations "
+            # f"({len(self.trajectories) / num_demonstrations * 100:1f}%)."
         )
 
     @classmethod
