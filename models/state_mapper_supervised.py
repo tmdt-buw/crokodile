@@ -16,13 +16,22 @@ import torch
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger, TensorBoardLogger
 from pytorch_lightning.strategies import DDPStrategy
-from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor
+from pytorch_lightning.callbacks import (
+    ModelCheckpoint,
+    EarlyStopping,
+    LearningRateMonitor,
+)
 
 from multiprocessing import cpu_count, set_start_method
 
 from config import wandb_config
 
-from utils.nn import NeuralNetwork, KinematicChainLoss, init_xavier_uniform, create_network
+from utils.nn import (
+    NeuralNetwork,
+    KinematicChainLoss,
+    init_xavier_uniform,
+    create_network,
+)
 from models.dht import get_dht_model
 from models.transformer import Seq2SeqTransformer
 
@@ -30,13 +39,9 @@ from config import data_folder
 
 
 class LitStateMapper(pl.LightningModule):
-    def __init__(self,
-                 data_file,
-                 state_mapper_config={},
-                 batch_size=32,
-                 num_workers=1,
-                 **kwargs
-                 ):
+    def __init__(
+        self, data_file, state_mapper_config={}, batch_size=32, num_workers=1, **kwargs
+    ):
         super(LitStateMapper, self).__init__()
         self.save_hyperparameters()
 
@@ -49,13 +54,13 @@ class LitStateMapper(pl.LightningModule):
         self.state_mapper_AB = create_network(
             in_dim=data_A["states_train"].shape[1],
             out_dim=data_B["states_train"].shape[1],
-            **state_mapper_config
+            **state_mapper_config,
         )
 
         self.transition_model_B = create_network(
             in_dim=data_A["states_train"].shape[1],
             out_dim=data_B["states_train"].shape[1],
-            **state_mapper_config
+            **state_mapper_config,
         )
 
         # self.state_mapper_BA = torch.nn.Sequential(
@@ -100,9 +105,13 @@ class LitStateMapper(pl.LightningModule):
         states_train_A = data["A"]["states_train"]
         states_train_B = data["B"]["states_train"]
 
-        dataloader_train = DataLoader(TensorDataset(states_train_A, states_train_B),
-                                      batch_size=self.hparams.batch_size, num_workers=self.hparams.num_workers,
-                                      shuffle=True, pin_memory=True)
+        dataloader_train = DataLoader(
+            TensorDataset(states_train_A, states_train_B),
+            batch_size=self.hparams.batch_size,
+            num_workers=self.hparams.num_workers,
+            shuffle=True,
+            pin_memory=True,
+        )
 
         return dataloader_train
 
@@ -118,9 +127,12 @@ class LitStateMapper(pl.LightningModule):
         states_validation_A = data["A"]["states_test"]
         states_validation_B = data["B"]["states_test"]
 
-        dataloader_validation = DataLoader(TensorDataset(states_validation_A, states_validation_B),
-                                           batch_size=self.hparams.batch_size, num_workers=self.hparams.num_workers,
-                                           pin_memory=True)
+        dataloader_validation = DataLoader(
+            TensorDataset(states_validation_A, states_validation_B),
+            batch_size=self.hparams.batch_size,
+            num_workers=self.hparams.num_workers,
+            pin_memory=True,
+        )
 
         return dataloader_validation
 
@@ -163,12 +175,17 @@ class LitStateMapper(pl.LightningModule):
     def step(self, batch, batch_idx=None):
         states_A, states_B = batch
 
-        states_B_ = torch.nn.functional.pad(states_B[:, :-1], (1, 0), mode="constant", value=torch.nan)
+        states_B_ = torch.nn.functional.pad(
+            states_B[:, :-1], (1, 0), mode="constant", value=torch.nan
+        )
 
         states_B_pred = self.state_mapper_AB(states_A, states_B_)
         # states_A_ = self.state_mapper_BA(states_B)
 
-        loss_AB = self.loss_fn(self.dht_model_B(states_B_pred)[:,-1,:3,-1], self.dht_model_B(states_B)[:,-1,:3,-1])
+        loss_AB = self.loss_fn(
+            self.dht_model_B(states_B_pred)[:, -1, :3, -1],
+            self.dht_model_B(states_B)[:, -1, :3, -1],
+        )
         # loss_BA = self.loss_fn(states_A_, states_A)
 
         # loss = loss_AB + loss_BA
@@ -187,30 +204,36 @@ class LitStateMapper(pl.LightningModule):
     """
 
     def configure_optimizers(self):
-        optimizer_state_mapper_AB = torch.optim.Adam(self.state_mapper_AB.parameters(),
-                                                     lr=self.hparams.state_mapper_config.get("lr", 3e-4))
+        optimizer_state_mapper_AB = torch.optim.Adam(
+            self.state_mapper_AB.parameters(),
+            lr=self.hparams.state_mapper_config.get("lr", 3e-4),
+        )
         # optimizer_state_mapper_BA = torch.optim.Adam(self.state_mapper_BA.parameters(),
         #                                              lr=self.hparams.state_mapper_lr)
 
-        scheduler_state_mapper_AB = {"scheduler": ReduceLROnPlateau(optimizer_state_mapper_AB, factor=.9, patience=100),
-                                     "monitor": "validation_loss_state_mapper_AB",
-                                     "name": "scheduler_optimizer_state_mapper_AB"
-                                     }
+        scheduler_state_mapper_AB = {
+            "scheduler": ReduceLROnPlateau(
+                optimizer_state_mapper_AB, factor=0.9, patience=100
+            ),
+            "monitor": "validation_loss_state_mapper_AB",
+            "name": "scheduler_optimizer_state_mapper_AB",
+        }
 
         # scheduler_state_mapper_BA = {"scheduler": ReduceLROnPlateau(optimizer_state_mapper_BA),
         #                              "monitor": "validation_loss_state_mapper_BA",
         #                              "name": "scheduler_optimizer_state_mapper_BA"
         #                              }
 
-        return [optimizer_state_mapper_AB,
-                # optimizer_state_mapper_BA
-                ], \
-               [scheduler_state_mapper_AB,
-                # scheduler_state_mapper_BA
-                ]
+        return [
+            optimizer_state_mapper_AB,
+            # optimizer_state_mapper_BA
+        ], [
+            scheduler_state_mapper_AB,
+            # scheduler_state_mapper_BA
+        ]
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     wandb_config.update(
         {
             "group": "state_mapper",
@@ -225,7 +248,7 @@ if __name__ == '__main__':
         "num_encoder_layers": 4,
         "num_decoder_layers": 4,
         "dim_feedforward": 32,
-        "dropout": .1,
+        "dropout": 0.1,
         "lr": 3e-4,
         "batch_size": 64,
         "max_epochs": 10_000,
@@ -248,14 +271,19 @@ if __name__ == '__main__':
 
     callbacks = [
         ModelCheckpoint(monitor="val_loss", mode="min"),
-        LearningRateMonitor(logging_interval='step'),
-        EarlyStopping(monitor="val_loss", mode="min", patience=500)
+        LearningRateMonitor(logging_interval="step"),
+        EarlyStopping(monitor="val_loss", mode="min", patience=500),
     ]
 
     logger = WandbLogger(**wandb_config, log_model="all")
     # logger = TensorBoardLogger("results")
 
-    trainer = pl.Trainer(accelerator="gpu", devices=devices,
-    # trainer = pl.Trainer(strategy=DDPStrategy(), accelerator="gpu", devices=devices,
-             logger=logger, max_epochs=config["max_epochs"], callbacks=callbacks)
+    trainer = pl.Trainer(
+        accelerator="gpu",
+        devices=devices,
+        # trainer = pl.Trainer(strategy=DDPStrategy(), accelerator="gpu", devices=devices,
+        logger=logger,
+        max_epochs=config["max_epochs"],
+        callbacks=callbacks,
+    )
     trainer.fit(state_mapper)

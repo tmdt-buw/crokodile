@@ -27,7 +27,10 @@ class EnvironmentRobotTask(Env):
     """
 
     def __init__(self, config):
-        config = deepcopy(config)
+        try:
+            config = deepcopy(config)
+        except TypeError:
+            pass
 
         robot_config = config["robot_config"]
         task_config = config["task_config"]
@@ -46,11 +49,11 @@ class EnvironmentRobotTask(Env):
 
             bullet_client.setAdditionalSearchPath(pd.getDataPath())
 
-            time_step = 1. / 300.
+            time_step = 1.0 / 300.0
             bullet_client.setTimeStep(time_step)
             bullet_client.setRealTimeSimulation(0)
 
-        np.random.seed(int.from_bytes(os.urandom(4), byteorder='little'))
+        np.random.seed(int.from_bytes(os.urandom(4), byteorder="little"))
 
         self.bullet_client = bullet_client
 
@@ -61,10 +64,12 @@ class EnvironmentRobotTask(Env):
         # self.action_space = spaces.flatten_space(self.robot.action_space)
         self.action_space = self.robot.action_space
 
-        self.state_space = spaces.Dict({
-            'robot': self.robot.state_space,
-            'task': self.task.state_space,
-        })
+        self.state_space = spaces.Dict(
+            {
+                "robot": self.robot.state_space,
+                "task": self.task.state_space,
+            }
+        )
 
         self.goal_space = self.task.goal_space
 
@@ -73,17 +78,16 @@ class EnvironmentRobotTask(Env):
         self.reward_function = self.task.reward_function
         self.success_criterion = self.task.success_criterion
 
-    def __del__(self):
-        del self.robot
-        del self.task
-        del self.bullet_client
+    # def __del__(self):
+    #     del self.robot
+    #     del self.task
+    #     del self.bullet_client
 
     @property
     def observation_space(self):
-        observation_space = spaces.Dict({
-            "state": self.state_space,
-            "goal": self.goal_space
-        })
+        observation_space = spaces.Dict(
+            {"state": self.state_space, "goal": self.goal_space}
+        )
 
         return observation_space
 
@@ -99,32 +103,30 @@ class EnvironmentRobotTask(Env):
         desired_goal = desired_observation.get("goal", {})
 
         state_robot = self.robot.reset(desired_state.get("robot"), force=force)
-        state_task, goal, info = self.task.reset(desired_state.get("task"), desired_goal, self.robot, state_robot,
-                                                 force=force)
+        state_task, goal, info = self.task.reset(
+            desired_state.get("task"),
+            desired_goal,
+            self.robot,
+            state_robot,
+            force=force,
+        )
 
         observation = {
-            "state": {
-                'robot': state_robot,
-                'task': state_task
-            },
-            "goal": goal
+            "state": {"robot": state_robot, "task": state_task},
+            "goal": goal,
         }
 
         return observation
 
     def step(self, action):
-
         # action = spaces.unflatten(self.robot.action_space, action)
 
         state_robot = self.robot.step(action)
         state_task, goal, done, info = self.task.step(state_robot, self.robot)
 
         observation = {
-            "state": {
-                'robot': state_robot,
-                'task': state_task
-            },
-            "goal": goal
+            "state": {"robot": state_robot, "task": state_task},
+            "goal": goal,
         }
 
         success = self.success_criterion(goal)
@@ -142,21 +144,23 @@ class EnvironmentRobotTask(Env):
 
 class Callbacks(DefaultCallbacks):
     def on_episode_end(
-            self,
-            *,
-            worker: RolloutWorker,
-            base_env: BaseEnv,
-            policies: Dict[str, Policy],
-            episode: Episode,
-            env_index: int,
-            **kwargs
+        self,
+        *,
+        worker: RolloutWorker,
+        base_env: BaseEnv,
+        policies: Dict[str, Policy],
+        episode: Episode,
+        env_index: int,
+        **kwargs
     ):
         # Check if there are multiple episodes in a batch, i.e.
         # "batch_mode": "truncate_episodes".
         if worker.policy_config["batch_mode"] == "truncate_episodes":
             # Make sure this episode is really done.
-            assert episode.batch_builder.policy_collectors["default_policy"].batches[-1]["dones"][-1], (
-                "ERROR: `on_episode_end()` should only be called after episode is done!"
-            )
+            assert episode.batch_builder.policy_collectors["default_policy"].batches[
+                -1
+            ]["dones"][
+                -1
+            ], "ERROR: `on_episode_end()` should only be called after episode is done!"
 
         episode.custom_metrics["success"] = episode.last_info_for()["success"]

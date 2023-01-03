@@ -2,58 +2,95 @@ import torch
 from utils.nn import NeuralNetwork, Rescale, Sawtooth
 import numpy as np
 
+
 class DHT_Transform(torch.nn.Module):
-    def __init__(self, theta=None, d=None, a=0, alpha=0, proximal=False, upscale_dim=False):
+    def __init__(
+        self, theta=None, d=None, a=0, alpha=0, proximal=False, upscale_dim=False
+    ):
         super(DHT_Transform, self).__init__()
 
-        assert theta is not None or d is not None, "Transformation can only have one degree of freedom"
+        assert (
+            theta is not None or d is not None
+        ), "Transformation can only have one degree of freedom"
 
         self.proximal = proximal
 
         if theta is not None:
-            self.theta = torch.nn.Parameter(torch.tensor(theta, dtype=torch.float32), requires_grad=False)
+            self.theta = torch.nn.Parameter(
+                torch.tensor(theta, dtype=torch.float32), requires_grad=False
+            )
         if d is not None:
-            self.d = torch.nn.Parameter(torch.tensor(d, dtype=torch.float32), requires_grad=False)
-        self.a = torch.nn.Parameter(torch.tensor(a, dtype=torch.float32), requires_grad=False)
-        self.alpha = torch.nn.Parameter(torch.tensor(alpha, dtype=torch.float32), requires_grad=False)
+            self.d = torch.nn.Parameter(
+                torch.tensor(d, dtype=torch.float32), requires_grad=False
+            )
+        self.a = torch.nn.Parameter(
+            torch.tensor(a, dtype=torch.float32), requires_grad=False
+        )
+        self.alpha = torch.nn.Parameter(
+            torch.tensor(alpha, dtype=torch.float32), requires_grad=False
+        )
 
-        self.theta_cos = torch.nn.Parameter(torch.tensor([[1, 0, 0, 0],
-                                                          [0, 1, 0, 0],
-                                                          [0, 0, 0, 0],
-                                                          [0, 0, 0, 0]], dtype=torch.float32), requires_grad=False)
-        self.theta_sin = torch.nn.Parameter(torch.tensor([[0, -1, 0, 0],
-                                                          [1, 0, 0, 0],
-                                                          [0, 0, 0, 0],
-                                                          [0, 0, 0, 0]], dtype=torch.float32), requires_grad=False)
-        self.theta_const = torch.nn.Parameter(torch.tensor([[0, 0, 0, 0],
-                                                            [0, 0, 0, 0],
-                                                            [0, 0, 1, 0],
-                                                            [0, 0, 0, 1]], dtype=torch.float32), requires_grad=False)
+        self.theta_cos = torch.nn.Parameter(
+            torch.tensor(
+                [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+                dtype=torch.float32,
+            ),
+            requires_grad=False,
+        )
+        self.theta_sin = torch.nn.Parameter(
+            torch.tensor(
+                [[0, -1, 0, 0], [1, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+                dtype=torch.float32,
+            ),
+            requires_grad=False,
+        )
+        self.theta_const = torch.nn.Parameter(
+            torch.tensor(
+                [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],
+                dtype=torch.float32,
+            ),
+            requires_grad=False,
+        )
 
-        self.d_ = torch.nn.Parameter(torch.tensor([[0, 0, 0, 0],
-                                                   [0, 0, 0, 0],
-                                                   [0, 0, 0, 1],
-                                                   [0, 0, 0, 0]], dtype=torch.float32), requires_grad=False)
+        self.d_ = torch.nn.Parameter(
+            torch.tensor(
+                [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 1], [0, 0, 0, 0]],
+                dtype=torch.float32,
+            ),
+            requires_grad=False,
+        )
         self.d_const = torch.nn.Parameter(torch.eye(4, 4), requires_grad=False)
 
-        self.a_ = torch.nn.Parameter(torch.tensor([[0, 0, 0, 1],
-                                                   [0, 0, 0, 0],
-                                                   [0, 0, 0, 0],
-                                                   [0, 0, 0, 0]], dtype=torch.float32), requires_grad=False)
+        self.a_ = torch.nn.Parameter(
+            torch.tensor(
+                [[0, 0, 0, 1], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+                dtype=torch.float32,
+            ),
+            requires_grad=False,
+        )
         self.a_const = torch.nn.Parameter(torch.eye(4, 4), requires_grad=False)
 
-        self.alpha_cos = torch.nn.Parameter(torch.tensor([[0, 0, 0, 0],
-                                                          [0, 1, 0, 0],
-                                                          [0, 0, 1, 0],
-                                                          [0, 0, 0, 0]], dtype=torch.float32), requires_grad=False)
-        self.alpha_sin = torch.nn.Parameter(torch.tensor([[0, 0, 0, 0],
-                                                          [0, 0, -1, 0],
-                                                          [0, 1, 0, 0],
-                                                          [0, 0, 0, 0]], dtype=torch.float32), requires_grad=False)
-        self.alpha_const = torch.nn.Parameter(torch.tensor([[1, 0, 0, 0],
-                                                            [0, 0, 0, 0],
-                                                            [0, 0, 0, 0],
-                                                            [0, 0, 0, 1]], dtype=torch.float32), requires_grad=False)
+        self.alpha_cos = torch.nn.Parameter(
+            torch.tensor(
+                [[0, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 0]],
+                dtype=torch.float32,
+            ),
+            requires_grad=False,
+        )
+        self.alpha_sin = torch.nn.Parameter(
+            torch.tensor(
+                [[0, 0, 0, 0], [0, 0, -1, 0], [0, 1, 0, 0], [0, 0, 0, 0]],
+                dtype=torch.float32,
+            ),
+            requires_grad=False,
+        )
+        self.alpha_const = torch.nn.Parameter(
+            torch.tensor(
+                [[1, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 1]],
+                dtype=torch.float32,
+            ),
+            requires_grad=False,
+        )
 
         if upscale_dim:
             network_structure = [("linear", 10), ("tanh", None)] * 4 + [("linear", 1)]
@@ -89,21 +126,35 @@ class DHT_Transform(torch.nn.Module):
         if hasattr(self, "alpha_upscale_dim"):
             alpha = self.alpha_upscale_dim(alpha)
 
-        transformation_theta = torch.einsum("xy,bz->bxy", self.theta_cos, theta.cos()) + \
-                               torch.einsum("xy,bz->bxy", self.theta_sin, theta.sin()) + self.theta_const
+        transformation_theta = (
+            torch.einsum("xy,bz->bxy", self.theta_cos, theta.cos())
+            + torch.einsum("xy,bz->bxy", self.theta_sin, theta.sin())
+            + self.theta_const
+        )
         transformation_d = torch.einsum("xy,bz->bxy", self.d_, d) + self.d_const
-        transformation_alpha = torch.einsum("xy,bz->bxy", self.alpha_cos, alpha.cos()) + \
-                               torch.einsum("xy,bz->bxy", self.alpha_sin, alpha.sin()) + self.alpha_const
+        transformation_alpha = (
+            torch.einsum("xy,bz->bxy", self.alpha_cos, alpha.cos())
+            + torch.einsum("xy,bz->bxy", self.alpha_sin, alpha.sin())
+            + self.alpha_const
+        )
         transformation_a = torch.einsum("xy,bz->bxy", self.a_, a) + self.a_const
 
         if self.proximal:
-            transformation = torch.einsum(f"bij,bjk,bkl,blm->bim",
-                                          transformation_alpha, transformation_a,
-                                          transformation_theta, transformation_d)
+            transformation = torch.einsum(
+                f"bij,bjk,bkl,blm->bim",
+                transformation_alpha,
+                transformation_a,
+                transformation_theta,
+                transformation_d,
+            )
         else:
-            transformation = torch.einsum(f"bij,bjk,bkl,blm->bim",
-                                          transformation_theta, transformation_d,
-                                          transformation_a, transformation_alpha)
+            transformation = torch.einsum(
+                f"bij,bjk,bkl,blm->bim",
+                transformation_theta,
+                transformation_d,
+                transformation_a,
+                transformation_alpha,
+            )
 
         return transformation
 
@@ -114,25 +165,40 @@ class DHT_Model(torch.nn.Module):
 
         self.transformations = torch.nn.ModuleList([])
 
-        self.active_joints_mask = [int("theta" not in dht_param or "d" not in dht_param) for dht_param in dht_params]
+        self.active_joints_mask = [
+            int("theta" not in dht_param or "d" not in dht_param)
+            for dht_param in dht_params
+        ]
 
         for dht_param in dht_params:
-            self.transformations.append(DHT_Transform(**dht_param, upscale_dim=upscale_dim))
+            self.transformations.append(
+                DHT_Transform(**dht_param, upscale_dim=upscale_dim)
+            )
 
-        self.scaling_mask = torch.nn.Parameter(torch.zeros(4,4, dtype=bool), requires_grad=False)
-        self.scaling_mask[:3,-1] = True
+        self.scaling_mask = torch.nn.Parameter(
+            torch.zeros(4, 4, dtype=bool), requires_grad=False
+        )
+        self.scaling_mask[:3, -1] = True
 
-        self.scaling = torch.nn.Parameter(torch.ones(len(dht_params), requires_grad=True))
+        self.scaling = torch.nn.Parameter(
+            torch.ones(len(dht_params), requires_grad=True)
+        )
 
         self.pose_init = torch.nn.Parameter(torch.eye(4, 4), requires_grad=False)
 
     def forward(self, params):
 
-        pose = torch.eye(4, 4, device=params.device).unsqueeze(0).repeat(params.shape[0], 1, 1)
+        pose = (
+            torch.eye(4, 4, device=params.device)
+            .unsqueeze(0)
+            .repeat(params.shape[0], 1, 1)
+        )
 
         poses = []
 
-        for transformation, param in zip(self.transformations, params.split(self.active_joints_mask, 1)):
+        for transformation, param in zip(
+            self.transformations, params.split(self.active_joints_mask, 1)
+        ):
             transformation = transformation(param)
 
             pose = torch.einsum("bij,bjk->bik", pose, transformation)
@@ -143,14 +209,16 @@ class DHT_Model(torch.nn.Module):
 
         return out
 
+
 def get_dht_model(dht_params, joint_limits, upscale_dim=False):
     return torch.nn.Sequential(
-        Rescale(-1, 1, joint_limits[:,0], joint_limits[:,1]),
+        Rescale(-1, 1, joint_limits[:, 0], joint_limits[:, 1]),
         # Sawtooth(-np.pi, np.pi, -np.pi, np.pi),
-        DHT_Model(dht_params, upscale_dim=upscale_dim)
+        DHT_Model(dht_params, upscale_dim=upscale_dim),
     )
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
 
     # theta = np.random.rand()
     # d = np.random.rand()
@@ -221,7 +289,7 @@ if __name__ == '__main__':
     loss_function = torch.nn.MSELoss()
     loss_function_mode = torch.nn.BCELoss()
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=.01)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 
     for ii in range(100_000):
         x = torch.rand(64, len(modes)).to(device) * 2 - 1
@@ -239,10 +307,13 @@ if __name__ == '__main__':
         loss.backward()
         optimizer.step()
 
-
         def plot_line(ax, pointA, pointB, color=None):
-            ax.plot([pointA[0], pointB[0]], [pointA[1], pointB[1]], zs=[pointA[2], pointB[2]], c=color)
-
+            ax.plot(
+                [pointA[0], pointB[0]],
+                [pointA[1], pointB[1]],
+                zs=[pointA[2], pointB[2]],
+                c=color,
+            )
 
         if ii % 1_000 == 0:
             print("Step", ii)
@@ -252,8 +323,14 @@ if __name__ == '__main__':
             param_tensor = []
 
             for transformation in model.transformations:
-                params = torch.stack((transformation.theta.data, transformation.d.data, transformation.a.data,
-                                      transformation.alpha.data))
+                params = torch.stack(
+                    (
+                        transformation.theta.data,
+                        transformation.d.data,
+                        transformation.a.data,
+                        transformation.alpha.data,
+                    )
+                )
                 param_tensor.append(params)
 
             param_tensor = torch.stack(param_tensor)
@@ -263,7 +340,7 @@ if __name__ == '__main__':
             fig = plt.figure(figsize=(15, 15))
 
             for irow in range(9):
-                ax = fig.add_subplot(3, 3, irow + 1, projection='3d')
+                ax = fig.add_subplot(3, 3, irow + 1, projection="3d")
                 ax_model = ax_oracle = ax
                 # ax_model = fig.add_subplot(3, 2, irow * 2 + 1, projection='3d')
                 # ax_oracle = fig.add_subplot(3, 2, irow * 2 + 2, projection='3d')
@@ -271,10 +348,14 @@ if __name__ == '__main__':
                 # ax_model.set_axis_off()
                 # ax_oracle.set_axis_off()
 
-                kp_oracle = transformation_oracle[irow, :, :3, -1].cpu().detach().numpy()
+                kp_oracle = (
+                    transformation_oracle[irow, :, :3, -1].cpu().detach().numpy()
+                )
                 kp_oracle = np.concatenate([np.zeros((1, 3)), kp_oracle])
 
-                kp_oracle_link_lengths = np.sqrt(np.power(kp_oracle[1:] - kp_oracle[:-1], 2).sum(-1))
+                kp_oracle_link_lengths = np.sqrt(
+                    np.power(kp_oracle[1:] - kp_oracle[:-1], 2).sum(-1)
+                )
                 kp_oracle_total_length = kp_oracle_link_lengths.sum()
 
                 prev_length = 0
@@ -284,19 +365,27 @@ if __name__ == '__main__':
                     link_length = np.sqrt(np.power(pointB - pointA, 2).sum(-1))
                     color_end = (prev_length + link_length) / kp_oracle_total_length
 
-                    points = np.linspace(pointA, pointB, int(np.ceil(10 * link_length / kp_oracle_total_length)))
+                    points = np.linspace(
+                        pointA,
+                        pointB,
+                        int(np.ceil(10 * link_length / kp_oracle_total_length)),
+                    )
                     colors = np.linspace(color_start, color_end, len(points))[:-1]
                     colors = plt.get_cmap("autumn")(colors)
 
                     for pA, pB, color in zip(points[:-1], points[1:], colors):
-                        ax.plot([pA[0], pB[0]], [pA[1], pB[1]], zs=[pA[2], pB[2]], c=color)
+                        ax.plot(
+                            [pA[0], pB[0]], [pA[1], pB[1]], zs=[pA[2], pB[2]], c=color
+                        )
 
                     prev_length += link_length
 
                 kp_model = transformation_model[irow, :, :3, -1].cpu().detach().numpy()
                 kp_model = np.concatenate([np.zeros((1, 3)), kp_model])
 
-                kp_model_link_lengths = np.sqrt(np.power(kp_model[1:] - kp_model[:-1], 2).sum(-1))
+                kp_model_link_lengths = np.sqrt(
+                    np.power(kp_model[1:] - kp_model[:-1], 2).sum(-1)
+                )
                 kp_model_total_length = kp_model_link_lengths.sum()
 
                 prev_length = 0
@@ -306,12 +395,18 @@ if __name__ == '__main__':
                     link_length = np.sqrt(np.power(pointB - pointA, 2).sum(-1))
                     color_end = (prev_length + link_length) / kp_model_total_length
 
-                    points = np.linspace(pointA, pointB, int(np.ceil(10 * link_length / kp_model_total_length)))
+                    points = np.linspace(
+                        pointA,
+                        pointB,
+                        int(np.ceil(10 * link_length / kp_model_total_length)),
+                    )
                     colors = np.linspace(color_start, color_end, len(points))[:-1]
                     colors = plt.get_cmap("autumn")(colors)
 
                     for pA, pB, color in zip(points[:-1], points[1:], colors):
-                        ax.plot([pA[0], pB[0]], [pA[1], pB[1]], zs=[pA[2], pB[2]], c=color)
+                        ax.plot(
+                            [pA[0], pB[0]], [pA[1], pB[1]], zs=[pA[2], pB[2]], c=color
+                        )
 
                     prev_length += link_length
 

@@ -1,7 +1,6 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.nn.functional import mse_loss
 
 """
         Helper function to generate neural network from hyperparameters.
@@ -17,33 +16,41 @@ from torch.nn.functional import mse_loss
     """
 
 
-def get_weight_matrices(link_positions_X, link_positions_Y, weight_matrix_exponent_p, norm=True):
+def get_weight_matrices(
+    link_positions_X, link_positions_Y, weight_matrix_exponent_p, norm=True
+):
     """
-        Generate weights based on distances between relative positions of robot links
+    Generate weights based on distances between relative positions of robot links
 
-        Params:
-            link_positions_{X, Y}: Positions of both robots in 3D space.
-            weight_matrix_exponent_p: Parameter used to shape the position weight matrix by emphasizing similarity.
-                weight = exp(-weight_matrix_exponent_p * distance)
+    Params:
+        link_positions_{X, Y}: Positions of both robots in 3D space.
+        weight_matrix_exponent_p: Parameter used to shape the position weight matrix by emphasizing similarity.
+            weight = exp(-weight_matrix_exponent_p * distance)
 
-        Returns:
-            weight_matrix_XY_p: Weight matrix for positions
-            weight_matrix_XY_p: Weight matrix for orientations. All zeros except weight which corresponds to the end effectors.
+    Returns:
+        weight_matrix_XY_p: Weight matrix for positions
+        weight_matrix_XY_p: Weight matrix for orientations. All zeros except weight which corresponds to the end effectors.
     """
 
     link_positions_X = torch.cat((torch.zeros(1, 3), link_positions_X))
-    link_lenghts_X = torch.norm(link_positions_X[1:] - link_positions_X[:-1], p=2, dim=-1)
+    link_lenghts_X = torch.norm(
+        link_positions_X[1:] - link_positions_X[:-1], p=2, dim=-1
+    )
     link_order_X = link_lenghts_X.cumsum(0)
     link_order_X = link_order_X / link_order_X[-1]
 
     link_positions_Y = torch.cat((torch.zeros(1, 3), link_positions_Y))
-    link_lenghts_Y = torch.norm(link_positions_Y[1:] - link_positions_Y[:-1], p=2, dim=-1)
+    link_lenghts_Y = torch.norm(
+        link_positions_Y[1:] - link_positions_Y[:-1], p=2, dim=-1
+    )
     link_order_Y = link_lenghts_Y.cumsum(0)
     link_order_Y = link_order_Y / link_order_Y[-1]
 
     weight_matrix_XY_p = torch.exp(
-        -weight_matrix_exponent_p * torch.cdist(link_order_X.unsqueeze(-1), link_order_Y.unsqueeze(-1)))
-    weight_matrix_XY_p = torch.nan_to_num(weight_matrix_XY_p, 1.)
+        -weight_matrix_exponent_p
+        * torch.cdist(link_order_X.unsqueeze(-1), link_order_Y.unsqueeze(-1))
+    )
+    weight_matrix_XY_p = torch.nan_to_num(weight_matrix_XY_p, 1.0)
 
     weight_matrix_XY_o = torch.zeros_like(weight_matrix_XY_p)
     weight_matrix_XY_o[-1, -1] = 1
@@ -55,10 +62,21 @@ def get_weight_matrices(link_positions_X, link_positions_Y, weight_matrix_expone
     return weight_matrix_XY_p, weight_matrix_XY_o
 
 
-def create_network(in_dim, out_dim, network_width, network_depth, dropout, out_activation=None, **kwargs):
-    network_structure = [('linear', network_width), ('relu', None),
-                         ('dropout', dropout)] * network_depth
-    network_structure.append(('linear', out_dim))
+def create_network(
+    in_dim,
+    out_dim,
+    network_width,
+    network_depth,
+    dropout,
+    out_activation=None,
+    **kwargs,
+):
+    network_structure = [
+        ("linear", network_width),
+        ("relu", None),
+        ("dropout", dropout),
+    ] * network_depth
+    network_structure.append(("linear", out_dim))
 
     if out_activation:
         network_structure.append((out_activation, None))
@@ -67,7 +85,6 @@ def create_network(in_dim, out_dim, network_width, network_depth, dropout, out_a
 
 
 class Clamp(torch.nn.Module):
-
     def __init__(self, min, max):
         super(Clamp, self).__init__()
         self.min = min
@@ -93,9 +110,7 @@ class NeuralNetwork(nn.Module):
 
         assert type(in_dim) == int
 
-        self.operators = nn.ModuleList([
-            nn.Flatten()
-        ])
+        self.operators = nn.ModuleList([nn.Flatten()])
 
         current_dim = in_dim
 
@@ -104,32 +119,32 @@ class NeuralNetwork(nn.Module):
             self.operators.append(module)
 
     def get_module(self, name, params, current_dim):
-        if name == 'res_block':
+        if name == "res_block":
             module = ResBlock(current_dim, params)
-        elif name == 'linear':
+        elif name == "linear":
             module = nn.Linear(current_dim, params)
             current_dim = params
-        elif name == 'relu':
-            assert params is None, 'No argument for ReLU please'
+        elif name == "relu":
+            assert params is None, "No argument for ReLU please"
             module = nn.ReLU()
         elif name == "leaky_relu":
-            assert params is None, 'No argument for ReLU please'
+            assert params is None, "No argument for ReLU please"
             module = nn.LeakyReLU()
-        elif name == 'selu':
-            assert params is None, 'No argument for SeLU please'
+        elif name == "selu":
+            assert params is None, "No argument for SeLU please"
             module = nn.SELU()
-        elif name == 'tanh':
-            assert params is None, 'No argument for Tanh please'
+        elif name == "tanh":
+            assert params is None, "No argument for Tanh please"
             module = nn.Tanh()
-        elif name == 'gelu':
-            assert params is None, 'No argument for GreLU please'
+        elif name == "gelu":
+            assert params is None, "No argument for GreLU please"
             module = nn.GELU()
-        elif name == 'dropout':
+        elif name == "dropout":
             module = nn.Dropout(params)
-        elif name == 'batchnorm':
+        elif name == "batchnorm":
             module = nn.BatchNorm1d(current_dim)
         else:
-            raise NotImplementedError(f'{name} not known')
+            raise NotImplementedError(f"{name} not known")
 
         return module, current_dim
 
@@ -164,7 +179,7 @@ class NeuralNetwork(nn.Module):
 
 class ResBlock(NeuralNetwork):
     def __init__(self, in_dim, network_structure):
-        network_structure.append(('linear', in_dim))
+        network_structure.append(("linear", in_dim))
         self.network = super(ResBlock, self).__init__(in_dim, network_structure)
 
     def forward(self, *args, **kwargs):
@@ -177,7 +192,9 @@ class ResBlock(NeuralNetwork):
 
 class Critic(NeuralNetwork):
     def __init__(self, state_dims, action_dim, network_structure):
-        in_dim = int(np.sum([np.product(arg) for arg in state_dims]) + np.product(action_dim))
+        in_dim = int(
+            np.sum([np.product(arg) for arg in state_dims]) + np.product(action_dim)
+        )
 
         super(Critic, self).__init__(in_dim, network_structure)
 
@@ -228,7 +245,7 @@ class Rescale(torch.nn.Module):
     def extra_repr(self):
         # (Optional)Set the extra information about this module. You can test
         # it by printing an object of this class.
-        return f'm={self.m.data.tolist()}, c={self.c.data.tolist()}'
+        return f"m={self.m.data.tolist()}, c={self.c.data.tolist()}"
 
 
 class SawtoothFunction(torch.autograd.Function):
@@ -242,7 +259,7 @@ class SawtoothFunction(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        slope, = ctx.saved_tensors
+        (slope,) = ctx.saved_tensors
         return grad_output * slope, None, None, None, None
 
 
@@ -257,20 +274,23 @@ class Sawtooth(torch.nn.Module):
 
     def forward(self, input):
         # See the autograd section for explanation of what happens here.
-        return SawtoothFunction.apply(input, self.min_x, self.max_x, self.min_y, self.max_y)
+        return SawtoothFunction.apply(
+            input, self.min_x, self.max_x, self.min_y, self.max_y
+        )
 
     def extra_repr(self):
         # (Optional)Set the extra information about this module. You can test
         # it by printing an object of this class.
-        return f'min_x={self.min_x.data.tolist()}, max_x={self.max_x.data.tolist()}, min_y={self.min_y.data.tolist()}, max_y={self.max_y.data.tolist()}'
+        return f"min_x={self.min_x.data.tolist()}, max_x={self.max_x.data.tolist()}, min_y={self.min_y.data.tolist()}, max_y={self.max_y.data.tolist()}"
 
 
 class Pos2Pose(nn.Module):
-
     def forward(self, x):
         positions = x.reshape(x.shape[0], -1, 3, 1)
 
-        orientations = torch.eye(3, device=x.device).expand(positions.shape[0], positions.shape[1], 3, 3)
+        orientations = torch.eye(3, device=x.device).expand(
+            positions.shape[0], positions.shape[1], 3, 3
+        )
 
         poses = torch.cat((orientations, positions), dim=-1)
 
@@ -283,13 +303,23 @@ class Pos2Pose(nn.Module):
 
 
 class KinematicChainLoss(torch.nn.Module):
-    def __init__(self, weight_matrix_positions, weight_matrix_orientations, reduction=True, verbose_output=False,
-                 eps=1e-7):
+    def __init__(
+        self,
+        weight_matrix_positions,
+        weight_matrix_orientations,
+        reduction=True,
+        verbose_output=False,
+        eps=1e-7,
+    ):
         super(KinematicChainLoss, self).__init__()
 
-        self.weight_matrix_positions = torch.nn.Parameter(weight_matrix_positions, requires_grad=False)
+        self.weight_matrix_positions = torch.nn.Parameter(
+            weight_matrix_positions, requires_grad=False
+        )
 
-        self.weight_matrix_orientations = torch.nn.Parameter(weight_matrix_orientations, requires_grad=False)
+        self.weight_matrix_orientations = torch.nn.Parameter(
+            weight_matrix_orientations, requires_grad=False
+        )
 
         self.reduction = reduction
         self.verbose_output = verbose_output
@@ -297,10 +327,10 @@ class KinematicChainLoss(torch.nn.Module):
 
     def forward(self, X, Y):
         """
-            - X: :math:`(B, S, M, 4, 4)`
-            - Y: :math:`(B, T, N, 4, 4)`
+        - X: :math:`(B, S, M, 4, 4)`
+        - Y: :math:`(B, T, N, 4, 4)`
 
-            - Y: :math:`(B, S, T)`
+        - Y: :math:`(B, S, T)`
         """
 
         if len(X.shape) == 4:
@@ -322,31 +352,45 @@ class KinematicChainLoss(torch.nn.Module):
 
         # compute position loss
         # b(s*n)(t*m)
-        distance_positions = torch.cdist(X[..., :3, -1].contiguous(), Y[..., :3, -1].contiguous())
+        distance_positions = torch.cdist(
+            X[..., :3, -1].contiguous(), Y[..., :3, -1].contiguous()
+        )
         distance_positions = distance_positions.view(-1, s, m, t, n)
 
         # todo: make scaling a parameter
         # distance_positions = 1 - torch.exp(-10 * distance_positions)
 
-        loss_positions = torch.einsum("bsmtn,mn->bst", distance_positions, self.weight_matrix_positions)
+        loss_positions = torch.einsum(
+            "bsmtn,mn->bst", distance_positions, self.weight_matrix_positions
+        )
 
         # compute orientation loss
 
         # http://www.boris-belousov.net/2016/12/01/quat-dist/
         # R = P * Q^T
         # tr_R = R * eye(3)
-        tr_R = torch.einsum("bsxy,btyz,xz->bst", X[..., :3, :3], torch.transpose(Y[..., :3, :3], -1, -2),
-                            torch.eye(3, device=X.device))
+        tr_R = torch.einsum(
+            "bsxy,btyz,xz->bst",
+            X[..., :3, :3],
+            torch.transpose(Y[..., :3, :3], -1, -2),
+            torch.eye(3, device=X.device),
+        )
 
         # calculate angle
         # add eps to make input to arccos (-1, 1) to avoid numerical instability
         # scale between 0 and 1
         # todo is acos (0,pi) or (-pi,pi)?
-        distance_orientations = torch.acos(
-            torch.clamp((tr_R - 1) / (2 + self.eps), -1 + self.eps, 1 - self.eps)) / np.pi
+        distance_orientations = (
+            torch.acos(
+                torch.clamp((tr_R - 1) / (2 + self.eps), -1 + self.eps, 1 - self.eps)
+            )
+            / np.pi
+        )
         distance_orientations = distance_orientations.view(-1, s, m, t, n)
 
-        loss_orientations = torch.einsum("bsmtn,mn->bst", distance_orientations, self.weight_matrix_orientations)
+        loss_orientations = torch.einsum(
+            "bsmtn,mn->bst", distance_orientations, self.weight_matrix_orientations
+        )
 
         loss = loss_positions + loss_orientations
 
@@ -361,10 +405,18 @@ class KinematicChainLoss(torch.nn.Module):
 
 if __name__ == "__main__":
     use_cuda = torch.cuda.is_available()
-    device = torch.device('cuda' if use_cuda else 'cpu')
+    device = torch.device("cuda" if use_cuda else "cpu")
 
-    network_structure = [('res_block', [('linear', 64), ('relu', None), ('dropout', 0.2), ('linear', 32)]),
-                         ('linear', 64), ('relu', None), ('dropout', 0.2), ('linear', 32)]
+    network_structure = [
+        (
+            "res_block",
+            [("linear", 64), ("relu", None), ("dropout", 0.2), ("linear", 32)],
+        ),
+        ("linear", 64),
+        ("relu", None),
+        ("dropout", 0.2),
+        ("linear", 32),
+    ]
 
     neural_network = NeuralNetwork(21, network_structure).to(device)
 
