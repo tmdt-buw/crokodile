@@ -100,6 +100,7 @@ if __name__ == "__main__":
             },
         },
         "Expert": {
+            "model_cls": "PPO",
             "model": deepcopy(config_algorithm),
             "train": {
                 "max_epochs": 10_000,
@@ -114,6 +115,7 @@ if __name__ == "__main__":
             "type": "explicit",
         },
         "Pretrainer": {
+            "model_cls": "MARWIL",
             "model": {
                 "framework": "torch",
                 "model": config_model,
@@ -132,6 +134,7 @@ if __name__ == "__main__":
             },
         },
         "Apprentice": {
+            "model_cls": "PPO",
             "model": deepcopy(config_algorithm),
             "train": {
                 "max_epochs": 5_000,

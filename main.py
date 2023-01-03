@@ -184,7 +184,7 @@ class Trainer(Stage):
             checkpoint_folders = [
                 f
                 for f in os.listdir(self.tmpdir)
-                if re.match("^checkpoint_\d+$", f)
+                if re.match(r"^checkpoint_\d+$", f)
             ]
 
             assert checkpoint_folders, f"No checkpoints found in {self.tmpdir}"
@@ -480,7 +480,7 @@ class MapperExplicit(Mapper):
 
 class Expert(Trainer):
     def __init__(self, config):
-        self.model_cls = "PPO"
+        self.model_cls = "PPO" # todo: make parameter
         self.model_config = config["Expert"]["model"]
         self.model_config.update(config["EnvSource"])
 
