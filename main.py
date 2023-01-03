@@ -480,7 +480,7 @@ class MapperExplicit(Mapper):
 
 class Expert(Trainer):
     def __init__(self, config):
-        self.model_cls = "PPO" # todo: make parameter
+        self.model_cls = config["Expert"]["model_cls"]
         self.model_config = config["Expert"]["model"]
         self.model_config.update(config["EnvSource"])
 
