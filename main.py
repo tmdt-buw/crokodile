@@ -138,6 +138,15 @@ class Trainer(Stage):
     run_id = None
 
     def __init__(self, config):
+        if self.model_cls == "PPO":
+            self.model_cls = PPO
+        elif self.model_cls == "BC":
+            self.model_cls = BC
+        elif self.model_cls == "MARWIL":
+            self.model_cls = MARWIL
+        else:
+            raise ValueError(f"Invalid model_cls: {self.model_cls}")
+
         super(Trainer, self).__init__(config)
 
     def save(self, path=None):
@@ -425,7 +434,8 @@ class MapperExplicit(Mapper):
         for nn, (jp, jp_next) in enumerate(
                 zip(joint_positions_target[:-1], joint_positions_target[1:])
         ):
-            actions = (jp_next.unsqueeze(0) - jp.unsqueeze(1)) / self.robot_target.scale
+            actions = (jp_next.unsqueeze(0) - jp.unsqueeze(1)) / \
+                      self.robot_target.scale
 
             # todo integrate kinematic chain similarity
 
@@ -470,7 +480,7 @@ class MapperExplicit(Mapper):
 
 class Expert(Trainer):
     def __init__(self, config):
-        self.model_cls = PPO
+        self.model_cls = "PPO"
         self.model_config = config["Expert"]["model"]
         self.model_config.update(config["EnvSource"])
 
@@ -703,7 +713,7 @@ class DemonstrationsTarget(Demonstrations):
 
 class Pretrainer(Trainer):
     def __init__(self, config):
-        self.model_cls = MARWIL
+        self.model_cls = config["Pretrainer"]["model_cls"]
         self.model_config = config["Pretrainer"]["model"]
         self.model_config.update(config["EnvTarget"])
 
@@ -737,7 +747,7 @@ class Pretrainer(Trainer):
 
 class Apprentice(Trainer):
     def __init__(self, config):
-        self.model_cls = PPO
+        self.model_cls = config["Apprentice"]["model_cls"]
         self.model_config = config["Apprentice"]["model"]
         self.model_config.update(config["EnvTarget"])
 
