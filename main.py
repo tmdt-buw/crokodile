@@ -98,7 +98,10 @@ class Stage:
             self.save()
 
     def __del__(self):
-        shutil.rmtree(self.tmpdir)
+        try:
+            shutil.rmtree(self.tmpdir)
+        except AttributeError:
+            pass
 
     def generate(self):
         raise NotImplementedError(
