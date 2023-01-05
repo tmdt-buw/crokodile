@@ -626,7 +626,8 @@ class DemonstrationsSource(Demonstrations):
 
             pbar = tqdm(total=num_demonstrations)
 
-            while len(self.trajectories) < num_demonstrations:
+            while len(self.trajectories) < num_demonstrations and \
+                    trials_completed < max_trials:
                 requests = []
                 required_predictions = {}
 
@@ -642,17 +643,17 @@ class DemonstrationsSource(Demonstrations):
                             )
                             requests.append((env_id, "reset", None))
                         else:
-                            if max_trials:
-                                trials += 1
+                            if trials_launched < max_trials:
+                                trials_launched += 1
                                 pbar.set_description(
-                                    f"trials={trials}/{max_trials} "
-                                    f"({trials / max_trials * 100:.0f}%)"
+                                    f"trials={trials_launched}/{max_trials} "
+                                    f"({trials_launched / max_trials * 100:.0f}%)"
                                 )
 
-                            # Update eps_id
-                            eps_ids[env_id] = max(eps_ids.values()) + 1
+                                # Update eps_id
+                                eps_ids[env_id] = max(eps_ids.values()) + 1
 
-                            required_predictions[env_id] = data
+                                required_predictions[env_id] = data
                     elif func == "step":
                         state, reward, done, info = data
 
@@ -673,6 +674,7 @@ class DemonstrationsSource(Demonstrations):
                             else:
                                 del batch_builder[env_id]
 
+                            trials_completed += 1
                             requests.append((env_id, "reset", None))
                         else:
                             required_predictions[env_id] = state
@@ -695,9 +697,6 @@ class DemonstrationsSource(Demonstrations):
                         )
 
                 responses = orchestrator.send_receive(requests)
-
-                if max_trials and trials >= max_trials:
-                    break
 
         logging.info(f"Generated {len(self.trajectories)} demonstrations.")
 
