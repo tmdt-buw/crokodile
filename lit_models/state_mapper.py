@@ -2,7 +2,6 @@ import os
 import sys
 from pathlib import Path
 
-import numpy as np
 from torch.nn.functional import relu
 import torch
 from pytorch_lightning.trainer.supporters import CombinedLoader
@@ -22,11 +21,12 @@ class LitStateMapper(LitModel):
         self,
         config
     ):
-        super(LitStateMapper, self).__init__(config)
-        self.loss_function = self.get_kinematic_chain_loss()
-        self.discriminator = LitDiscriminator(config["discriminator"])
+        super(LitStateMapper, self).__init__(config["StateMapper"])
         self.dht_model_A, self.dht_model_B = self.get_dht_models(
         )
+        self.loss_function = self.get_kinematic_chain_loss()
+        self.discriminator = LitDiscriminator(config)
+
 
     def get_model(self):
         data_path_X = os.path.join(data_folder, self.lit_config["data"]["data_file_X"])
@@ -105,7 +105,7 @@ class LitStateMapper(LitModel):
         )[0, :, :3, -1]
 
         weight_matrix_AB_p, weight_matrix_AB_o = self.get_weight_matrices(
-            link_positions_A, link_positions_B, np.inf
+            link_positions_A, link_positions_B, self.lit_config["model"]["weight_matrix_exponent_p"]
         )
         loss_fn_kinematics_AB = KinematicChainLoss(
             weight_matrix_AB_p, weight_matrix_AB_o, verbose_output=True
@@ -120,16 +120,16 @@ class LitStateMapper(LitModel):
         return optimizer_state_mapper
 
     def train_dataloader(self):
-        dataloader_train_A = self.get_dataloader(self.hparams.data_file_A, "train")
-        dataloader_train_B = self.get_dataloader(self.hparams.data_file_B, "train")
+        dataloader_train_A = self.get_dataloader(self.lit_config["data"]["data_file_X"], "train")
+        dataloader_train_B = self.get_dataloader(self.lit_config["data"]["data_file_Y"], "train")
         return CombinedLoader({"A": dataloader_train_A, "B": dataloader_train_B})
 
     def val_dataloader(self):
         dataloader_validation_A = self.get_dataloader(
-            self.hparams.data_file_A, "test", False
+            self.lit_config["data"]["data_file_X"], "test", False
         )
         dataloader_validation_B = self.get_dataloader(
-            self.hparams.data_file_B, "test", False
+            self.lit_config["data"]["data_file_Y"], "test", False
         )
         return CombinedLoader(
             {"A": dataloader_validation_A, "B": dataloader_validation_B}
@@ -137,7 +137,7 @@ class LitStateMapper(LitModel):
 
     def forward(self, states_A):
         with torch.no_grad():
-            states_B = self.state_mapper(states_A)
+            states_B = self.model(states_A)
         return states_B
 
     def loss(self, batch):
@@ -157,8 +157,8 @@ class LitStateMapper(LitModel):
         ) = self.loss_function(link_poses_X, link_poses_Y)
         # discriminator loss
         outputs = self.discriminator(states_Y)
-        dist = torch.sum((outputs - self.discriminator.discriminator.c) ** 2, dim=1)
-        loss_disc = torch.mean(relu(dist - self.discriminator.discriminator.radius))
+        dist = torch.sum((outputs - self.discriminator.model.c) ** 2, dim=1)
+        loss_disc = torch.mean(relu(dist - self.discriminator.model.radius))
 
         loss_state_mapper_XY_disc = loss_state_mapper_XY + loss_disc
 
@@ -177,25 +177,25 @@ class LitStateMapper(LitModel):
             loss_state_mapper_o,
         ) = self.loss(batch["A"])
         self.log(
-            "train_loss_state_mapper" + self.lit_config["log_suffix"],
+            "train_loss_LitStateMapper" + self.lit_config["log_suffix"],
             loss_state_mapper,
             on_step=False,
             on_epoch=True,
         )
         self.log(
-            "train_loss_state_mapper_disc" + self.lit_config["log_suffix"],
+            "train_loss_LitStateMapper_disc" + self.lit_config["log_suffix"],
             loss_state_mapper_disc,
             on_step=False,
             on_epoch=True,
         )
         self.log(
-            "train_loss_state_mapper_p" + self.lit_config["log_suffix"],
+            "train_loss_LitStateMapper_p" + self.lit_config["log_suffix"],
             loss_state_mapper_p,
             on_step=False,
             on_epoch=True,
         )
         self.log(
-            "train_loss_state_mapper_o" + self.lit_config["log_suffix"],
+            "train_loss_LitStateMapper_o" + self.lit_config["log_suffix"],
             loss_state_mapper_o,
             on_step=False,
             on_epoch=True,
@@ -210,59 +210,28 @@ class LitStateMapper(LitModel):
             loss_state_mapper_o,
         ) = self.loss(batch["A"])
         self.log(
-            "validation_loss_state_mapper" + self.lit_config["log_suffix"],
+            "validation_loss_LitStateMapper" + self.lit_config["log_suffix"],
             loss_state_mapper,
             on_step=False,
             on_epoch=True,
         )
         self.log(
-            "validation_loss_state_mapper_disc" + self.lit_config["log_suffix"],
+            "validation_loss_LitStateMapper_disc" + self.lit_config["log_suffix"],
             loss_state_mapper_disc,
             on_step=False,
             on_epoch=True,
         )
         self.log(
-            "validation_loss_state_mapper_p" + self.lit_config["log_suffix"],
+            "validation_loss_LitStateMapper_p" + self.lit_config["log_suffix"],
             loss_state_mapper_p,
             on_step=False,
             on_epoch=True,
         )
         self.log(
-            "validation_loss_state_mapper_o" + self.lit_config["log_suffix"],
+            "validation_loss_LitStateMapper_o" + self.lit_config["log_suffix"],
             loss_state_mapper_o,
             on_step=False,
             on_epoch=True,
         )
         return loss_state_mapper_disc
 
-
-
-def main():
-    data_file_A = "panda_5_20000_4000.pt"
-    data_file_B = "ur5_5_20000_4000.pt"
-
-    config_AB = {
-        "StateMapper": {
-            "model_cls": "state_mapper",
-            "data": {"data_file_X": data_file_A,
-                     "data_file_Y": data_file_B},
-            "log_suffix": "_A",
-            "model": {
-                "network_width": 1024,
-                "network_depth": 4,
-                "dropout": 0.1,
-                "out_activation": "tanh",
-            },
-            "train": {
-                "batch_size": 512,
-                "lr": 1e-3,
-            },
-            "callbacks": {
-            }
-        }
-    }
-
-
-
-if __name__ == "__main__":
-    main()

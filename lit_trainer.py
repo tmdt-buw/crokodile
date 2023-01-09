@@ -1,6 +1,5 @@
 import os
 import logging
-import re
 import glob
 
 import wandb
@@ -8,6 +7,7 @@ import torch
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
+from copy import deepcopy
 
 
 from lit_models.transition_model import LitTransitionModel
@@ -82,8 +82,7 @@ class LitTrainer(Stage):
             self.load(checkpoint_path)
         elif os.path.exists(path):
             # self.model_config.update({"num_workers": 1, "num_gpus": 0})
-            self.model = self.model_cls(self.config)
-            self.model.load_from_checkpoint(path, map_location=torch.device("cpu"))
+            self.model = self.model_cls.load_from_checkpoint(checkpoint_path=path, map_location=torch.device("cpu"), config=self.config)
         else:
             raise ValueError(f"Invalid path: {path}")
 
@@ -123,8 +122,8 @@ class TransitionModel(LitTrainer):
     def __init__(self, config):
         self.model_cls = config["TransitionModel"]["model_cls"]
         self.model_config = config["TransitionModel"]
-
         super(TransitionModel, self).__init__(config)
+
 
     def generate(self):
         super(TransitionModel, self).generate()
@@ -150,6 +149,7 @@ class Discriminator(LitTrainer):
         return super(Discriminator, cls).get_relevant_config(config)
 
 class StateMapper(LitTrainer):
+    discriminator = None
     def __init__(self, config):
         self.model_cls = config["StateMapper"]["model_cls"]
         self.model_config = config["StateMapper"]
@@ -157,9 +157,12 @@ class StateMapper(LitTrainer):
         super(StateMapper, self).__init__(config)
 
     def generate(self):
-        #TODO other generate function
         super(StateMapper, self).generate()
-        self.train()
+        self.discriminator = Discriminator(self.config)
+        self.discriminator.load()
+        self.model.discriminator = deepcopy(self.discriminator.model)
+        del self.discriminator
+        super(StateMapper, self).train()
 
     @classmethod
     def get_relevant_config(cls, config):

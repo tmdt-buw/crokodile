@@ -99,7 +99,7 @@ class LitDiscriminator(LitModel):
             self,
             config
     ):
-        super(LitDiscriminator, self).__init__(config)
+        super(LitDiscriminator, self).__init__(config["Discriminator"])
         self.loss_function = self.get_loss()
 
     def get_model(self):
@@ -153,24 +153,24 @@ class LitDiscriminator(LitModel):
 
     def forward(self, x):
         with torch.no_grad():
-            embedded_state = self.discriminator(x)
+            embedded_state = self.model(x)
         return embedded_state
 
     def loss(self, batch):
         trajectories_states, _ = batch
         states_x = trajectories_states.reshape(-1, trajectories_states.shape[-1])
-        outputs = self.discriminator(states_x)
-        loss, scores, radius = self.discriminator_loss(
-            outputs, self.discriminator, self.current_epoch
+        outputs = self.model(states_x)
+        loss, scores, radius = self.loss_function(
+            outputs, self.model, self.current_epoch
         )
         if radius:
-            self.discriminator.R.data = radius
+            self.model.radius.data = radius
         return loss, scores
 
     def training_step(self, batch, batch_idx):
         loss, _ = self.loss(batch)
         self.log(
-            "train_loss_discriminator" + self.lit_config["log_suffix"],
+            "train_loss_LitDiscriminator" + self.lit_config["log_suffix"],
             loss.item(),
             on_step=False,
             on_epoch=True,
@@ -180,60 +180,10 @@ class LitDiscriminator(LitModel):
     def validation_step(self, batch, batch_idx):
         loss, _ = self.loss(batch)
         self.log(
-            "validation_loss_discriminator" + self.lit_config["log_suffix"],
+            "validation_loss_LitDiscriminator" + self.lit_config["log_suffix"],
             loss.item(),
             on_step=False,
             on_epoch=True,
         )
         return loss
 
-
-def main():
-    data_file_A = "panda_5_20000_4000.pt"
-
-    config_A = {
-        "wandb_config": {
-            "project": "robot2robot",
-            "entity": "robot2robot",
-        },
-        "cache": {
-            "mode": "wandb",
-            # "load": False,
-            #"load": {
-            #},
-            "save": True,
-        },
-        "Discriminator": {
-            "model_cls": "discriminator",
-            "data": data_file_A,
-            "log_suffix": "_A",
-            "model": {
-                "objective": "soft-boundary",
-                "eps": 0.01,
-                "init_center_samples": 100,
-                "nu": 1e-3,
-                "out_dim": 4,
-                "network_width": 256,
-                "network_depth": 4,
-                "dropout": 0.2,
-                "warmup_epochs": 10,
-            },
-            "train": {
-                "batch_size": 512,
-                "lr": 1e-3,
-                "scheduler_epoch": 150,
-                "lr_decrease": 0.1,
-            },
-            "callbacks": {
-            }
-        }
-    }
-
-
-    Discriminator(config_A)
-
-
-
-
-if __name__ == "__main__":
-    main()

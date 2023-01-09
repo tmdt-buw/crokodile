@@ -14,7 +14,6 @@ class LitModel(pl.LightningModule):
     def __init__(self, config):
         super(LitModel, self).__init__()
         self.lit_config = config
-        self.save_hyperparameters(self.lit_config)
         self.model = self.get_model()
 
     def get_model(self):
