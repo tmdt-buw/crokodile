@@ -12,12 +12,8 @@ from lit_models.lit_model import LitModel
 from config import data_folder
 
 
-
 class LitTransitionModel(LitModel):
-    def __init__(
-            self,
-            config
-    ):
+    def __init__(self, config):
         super(LitTransitionModel, self).__init__(config["TransitionModel"])
         self.loss_function = MSELoss()
 
@@ -27,7 +23,7 @@ class LitTransitionModel(LitModel):
 
         transition_model = create_network(
             in_dim=data["trajectories_states_train"].shape[-1]
-                   + data["trajectories_actions_train"].shape[-1],
+            + data["trajectories_actions_train"].shape[-1],
             out_dim=data["trajectories_states_train"].shape[-1],
             **self.lit_config["model"],
         )
@@ -47,8 +43,7 @@ class LitTransitionModel(LitModel):
         return self.get_dataloader(self.lit_config["data"], "test", False)
 
     def forward(self, x):
-        with torch.no_grad():
-            next_states = self.transition_model(x)
+        next_states = self.model(x)
         return next_states
 
     def loss(self, batch):

@@ -17,16 +17,11 @@ from config import data_folder
 
 
 class LitStateMapper(LitModel):
-    def __init__(
-        self,
-        config
-    ):
+    def __init__(self, config):
         super(LitStateMapper, self).__init__(config["StateMapper"])
-        self.dht_model_A, self.dht_model_B = self.get_dht_models(
-        )
+        self.dht_model_A, self.dht_model_B = self.get_dht_models()
         self.loss_function = self.get_kinematic_chain_loss()
         self.discriminator = LitDiscriminator(config)
-
 
     def get_model(self):
         data_path_X = os.path.join(data_folder, self.lit_config["data"]["data_file_X"])
@@ -42,7 +37,6 @@ class LitStateMapper(LitModel):
         )
 
         return state_mapper_XY
-
 
     @staticmethod
     def get_weight_matrices(
@@ -63,7 +57,7 @@ class LitStateMapper(LitModel):
         link_order_Y = link_order_Y / link_order_Y[-1]
 
         weight_matrix_XY_p = torch.exp(
-            weight_matrix_exponent_p
+            -weight_matrix_exponent_p
             * torch.cdist(link_order_X.unsqueeze(-1), link_order_Y.unsqueeze(-1))
         )
         weight_matrix_XY_p = torch.nan_to_num(weight_matrix_XY_p, 1.0)
@@ -76,7 +70,6 @@ class LitStateMapper(LitModel):
             weight_matrix_XY_o /= weight_matrix_XY_o.sum()
 
         return weight_matrix_XY_p, weight_matrix_XY_p
-
 
     def get_dht_models(self):
         data_path_X = os.path.join(data_folder, self.lit_config["data"]["data_file_X"])
@@ -105,7 +98,9 @@ class LitStateMapper(LitModel):
         )[0, :, :3, -1]
 
         weight_matrix_AB_p, weight_matrix_AB_o = self.get_weight_matrices(
-            link_positions_A, link_positions_B, self.lit_config["model"]["weight_matrix_exponent_p"]
+            link_positions_A,
+            link_positions_B,
+            self.lit_config["model"]["weight_matrix_exponent_p"],
         )
         loss_fn_kinematics_AB = KinematicChainLoss(
             weight_matrix_AB_p, weight_matrix_AB_o, verbose_output=True
@@ -120,8 +115,12 @@ class LitStateMapper(LitModel):
         return optimizer_state_mapper
 
     def train_dataloader(self):
-        dataloader_train_A = self.get_dataloader(self.lit_config["data"]["data_file_X"], "train")
-        dataloader_train_B = self.get_dataloader(self.lit_config["data"]["data_file_Y"], "train")
+        dataloader_train_A = self.get_dataloader(
+            self.lit_config["data"]["data_file_X"], "train"
+        )
+        dataloader_train_B = self.get_dataloader(
+            self.lit_config["data"]["data_file_Y"], "train"
+        )
         return CombinedLoader({"A": dataloader_train_A, "B": dataloader_train_B})
 
     def val_dataloader(self):
@@ -136,8 +135,7 @@ class LitStateMapper(LitModel):
         )
 
     def forward(self, states_A):
-        with torch.no_grad():
-            states_B = self.model(states_A)
+        states_B = self.model(states_A)
         return states_B
 
     def loss(self, batch):
@@ -234,4 +232,3 @@ class LitStateMapper(LitModel):
             on_epoch=True,
         )
         return loss_state_mapper_disc
-

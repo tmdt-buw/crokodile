@@ -9,6 +9,7 @@ from lit_models.transition_model import LitTransitionModel
 from lit_models.lit_model import LitModel
 from models.trajectory_encoder import TrajectoryEncoder
 from itertools import chain
+from torch.nn import MSELoss
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
@@ -19,15 +20,12 @@ from config import data_folder
 
 
 class LitTrajectoryMapper(LitModel):
-    def __init__(
-        self,
-        config
-    ):
-        super(LitTrajectoryMapper, self).__init__(config)
+    def __init__(self, config):
+        super(LitTrajectoryMapper, self).__init__(config["TrajectoryMapper"])
         self.trajectory_encoder, self.policy = self.model
-        self.loss_function = self.get_loss()
         self.transition_model = LitTransitionModel(config)
         self.state_mapper = LitStateMapper(config)
+        self.loss_function = self.get_loss()
 
     def get_model(self):
         data_path_X = os.path.join(data_folder, self.lit_config["data"]["data_file_X"])
@@ -69,7 +67,9 @@ class LitTrajectoryMapper(LitModel):
         )[0, :, :3, -1]
 
         weight_matrix_AB_p, weight_matrix_AB_o = self.state_mapper.get_weight_matrices(
-            link_positions_A, link_positions_B, self.lit_config["model"]["weight_matrix_exponent"]
+            link_positions_A,
+            link_positions_B,
+            self.lit_config["model"]["weight_matrix_exponent_p"],
         )
 
         loss_soft_dtw_AB = SoftDTW(
@@ -84,13 +84,17 @@ class LitTrajectoryMapper(LitModel):
     def configure_optimizers(self):
         optimizer_action_mapper = torch.optim.AdamW(
             chain(self.trajectory_encoder.parameters(), self.policy.parameters()),
-            lr=self.hparams.action_mapper_config.get("lr", 3e-4),
+            lr=self.lit_config["train"].get("lr", 3e-4),
         )
         return optimizer_action_mapper
 
     def train_dataloader(self):
-        dataloader_train_A = self.get_dataloader(self.lit_config["data"]["data_file_X"], "train")
-        dataloader_train_B = self.get_dataloader(self.lit_config["data"]["data_file_Y"], "train")
+        dataloader_train_A = self.get_dataloader(
+            self.lit_config["data"]["data_file_X"], "train"
+        )
+        dataloader_train_B = self.get_dataloader(
+            self.lit_config["data"]["data_file_Y"], "train"
+        )
         return CombinedLoader({"A": dataloader_train_A, "B": dataloader_train_B})
 
     def val_dataloader(self):
@@ -167,8 +171,7 @@ class LitTrajectoryMapper(LitModel):
             *trajectories_states_B.shape[:2], *link_poses_B.shape[1:]
         )
 
-        loss = self.dtw_loss(link_poses_A, link_poses_B).mean()
-
+        loss = self.loss_function(link_poses_A, link_poses_B).mean()
         return loss
 
     def training_step(self, batch, batch_idx):
@@ -190,25 +193,3 @@ class LitTrajectoryMapper(LitModel):
             on_epoch=True,
         )
         return loss
-
-
-def main():
-
-    action_mapper_config = {
-        "behavior_dim": 64,
-        "encoder": {
-            "lr": 3e-3,
-            "d_model": 16,
-            "nhead": 4,
-            "num_layers": 2,
-            "num_decoder_layers": 2,
-            "dim_feedforward": 64,
-        },
-        "decoder": {
-            "network_width": 256,
-            "network_depth": 8,
-            "dropout": 0.1,
-            "out_activation": "tanh",
-        },
-    }
-

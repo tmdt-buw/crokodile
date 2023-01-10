@@ -13,6 +13,7 @@ from utils.nn import create_network
 from lit_models.lit_model import LitModel
 from config import data_folder
 
+
 class DeepSVDD(torch.nn.Module):
     """A class for the Deep SVDD method."""
 
@@ -39,7 +40,7 @@ class DeepSVDD(torch.nn.Module):
         self.objective = config["objective"]
         # fraction of data which is are outliers
         assert (0 < config["nu"]) & (
-                config["nu"] <= 1
+            config["nu"] <= 1
         ), "Hyperparameter nu should be in (0, 1]."
         self.nu = config["nu"]
         # hypersphere radius R
@@ -75,8 +76,8 @@ class DeepSVDDLoss(torch.nn.Module):
         radius = None
         dist = torch.sum((x - discriminator.c) ** 2, dim=1)
         if self.objective == "soft-boundary":
-            scores = dist - discriminator.radius ** 2
-            loss = discriminator.radius ** 2 + (1 / discriminator.nu) * torch.mean(
+            scores = dist - discriminator.radius**2
+            loss = discriminator.radius**2 + (1 / discriminator.nu) * torch.mean(
                 torch.max(torch.zeros_like(scores), scores)
             )
             # Update hypersphere radius R on mini-batch distances
@@ -95,10 +96,7 @@ class DeepSVDDLoss(torch.nn.Module):
 
 
 class LitDiscriminator(LitModel):
-    def __init__(
-            self,
-            config
-    ):
+    def __init__(self, config):
         super(LitDiscriminator, self).__init__(config["Discriminator"])
         self.loss_function = self.get_loss()
 
@@ -152,8 +150,7 @@ class LitDiscriminator(LitModel):
         return self.get_dataloader(self.lit_config["data"], "test", False)
 
     def forward(self, x):
-        with torch.no_grad():
-            embedded_state = self.model(x)
+        embedded_state = self.model(x)
         return embedded_state
 
     def loss(self, batch):
@@ -186,4 +183,3 @@ class LitDiscriminator(LitModel):
             on_epoch=True,
         )
         return loss
-

@@ -1,8 +1,9 @@
-from lit_trainer import TransitionModel, Discriminator, StateMapper, TrajectoryMapper
+from lit_models.lit_trainer import TransitionModel, Discriminator, StateMapper, TrajectoryMapper
 import numpy as np
 
 data_file_A = "panda_5_20000_4000.pt"
 data_file_B = "ur5_5_20000_4000.pt"
+
 
 def transition_model_main():
     config_A = {
@@ -17,8 +18,8 @@ def transition_model_main():
         },
         "TransitionModel": {
             "model_cls": "transition_model",
-            "data": data_file_A,
-            "log_suffix": "_A",
+            "data": data_file_B,
+            "log_suffix": "_B",
             "model": {
                 "network_width": 256,
                 "network_depth": 4,
@@ -30,13 +31,12 @@ def transition_model_main():
                 "batch_size": 2048,
                 "lr": 1e-3,
             },
-            "callbacks": {
-            }
-
-        }
+            "callbacks": {},
+        },
     }
 
     model = TransitionModel(config_A)
+
 
 def discriminator_main():
     config_A = {
@@ -71,12 +71,12 @@ def discriminator_main():
                 "scheduler_epoch": 150,
                 "lr_decrease": 0.1,
             },
-            "callbacks": {
-            }
-        }
+            "callbacks": {},
+        },
     }
 
     Discriminator(config_A)
+
 
 def state_mapper_main():
     config_AB = {
@@ -86,33 +86,26 @@ def state_mapper_main():
         },
         "cache": {
             "mode": "wandb",
-            "load": {
-                "Discriminator": "5444fd"
-            },
+            "load": {"Discriminator": "5444fd"},
             "save": True,
         },
         "StateMapper": {
             "model_cls": "state_mapper",
-            "data": {"data_file_X": data_file_A,
-                     "data_file_Y": data_file_B},
+            "data": {"data_file_X": data_file_A, "data_file_Y": data_file_B},
             "log_suffix": "_AB",
             "model": {
                 "network_width": 1024,
                 "network_depth": 4,
                 "dropout": 0.1,
                 "out_activation": "tanh",
-                "weight_matrix_exponent_p": np.inf
+                "weight_matrix_exponent_p": np.inf,
             },
             "train": {
                 "max_epochs": 50,
                 "batch_size": 512,
                 "lr": 1e-3,
             },
-
-
-
-            "callbacks": {
-            }
+            "callbacks": {},
         },
         "Discriminator": {
             "model_cls": "discriminator",
@@ -136,11 +129,11 @@ def state_mapper_main():
                 "scheduler_epoch": 150,
                 "lr_decrease": 0.1,
             },
-            "callbacks": {
-            }
-        }
+            "callbacks": {},
+        },
     }
     model = StateMapper(config_AB)
+
 
 def trajectory_mapper_main():
     config_AB = {
@@ -148,34 +141,28 @@ def trajectory_mapper_main():
             "project": "robot2robot",
             "entity": "robot2robot",
         },
-
         "cache": {
             "mode": "wandb",
-            "load": {
-                "Discriminator": "5444fd"
-            },
+            "load": {"StateMapper": "913e59", "TransitionModel": "f8c6ad"},
             "save": True,
         },
-
         "StateMapper": {
             "model_cls": "state_mapper",
-            "data": {"data_file_X": data_file_A,
-                     "data_file_Y": data_file_B},
+            "data": {"data_file_X": data_file_A, "data_file_Y": data_file_B},
             "log_suffix": "_AB",
             "model": {
                 "network_width": 1024,
                 "network_depth": 4,
                 "dropout": 0.1,
                 "out_activation": "tanh",
-                "weight_matrix_exponent_p": np.inf
+                "weight_matrix_exponent_p": np.inf,
             },
             "train": {
                 "max_epochs": 50,
                 "batch_size": 512,
                 "lr": 1e-3,
             },
-            "callbacks": {
-            }
+            "callbacks": {},
         },
         "Discriminator": {
             "model_cls": "discriminator",
@@ -199,16 +186,31 @@ def trajectory_mapper_main():
                 "scheduler_epoch": 150,
                 "lr_decrease": 0.1,
             },
-            "callbacks": {
-            }
+            "callbacks": {},
         },
-
+        "TransitionModel": {
+            "model_cls": "transition_model",
+            "data": data_file_B,
+            "log_suffix": "_B",
+            "model": {
+                "network_width": 256,
+                "network_depth": 4,
+                "dropout": 0.0,
+                "out_activation": "tanh",
+            },
+            "train": {
+                "max_epochs": 50,
+                "batch_size": 2048,
+                "lr": 1e-3,
+            },
+            "callbacks": {},
+        },
         "TrajectoryMapper": {
             "model_cls": "trajectory_mapper",
-            "data": {"data_file_X": data_file_A,
-                     "data_file_Y": data_file_B},
+            "data": {"data_file_X": data_file_A, "data_file_Y": data_file_B},
             "log_suffix": "_AB",
             "model": {
+                "weight_matrix_exponent_p": np.inf,
                 "behavior_dim": 64,
                 "encoder": {
                     "lr": 3e-3,
@@ -230,13 +232,14 @@ def trajectory_mapper_main():
                 "batch_size": 512,
                 "lr": 1e-3,
             },
-            "callbacks": {
-            }
-        }
+            "callbacks": {},
+        },
     }
     model = TrajectoryMapper(config_AB)
+
 
 if __name__ == "__main__":
     #transition_model_main()
     #discriminator_main()
-    state_mapper_main()
+    #state_mapper_main()
+    trajectory_mapper_main()

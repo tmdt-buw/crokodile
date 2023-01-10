@@ -19,8 +19,6 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from utils.nn import NeuralNetwork, KinematicChainLoss, create_network
 from models.dht import get_dht_model
-from models.transformer_encoder import Seq2SeqTransformerEncoder
-import tempfile
 import wandb
 from config import data_folder
 import os
