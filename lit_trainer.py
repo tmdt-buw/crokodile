@@ -167,3 +167,28 @@ class StateMapper(LitTrainer):
     @classmethod
     def get_relevant_config(cls, config):
         return super(StateMapper, cls).get_relevant_config(config)
+
+class TrajectoryMapper(LitTrainer):
+    transition_model = None
+    state_mapper = None
+    def __init__(self, config):
+        self.model_cls = config["TrajectoryMapper"]["model_cls"]
+        self.model_config = config["TrajectoryMapper"]
+        super(TrajectoryMapper, self).__init__(config)
+
+    def generate(self):
+        super(TrajectoryMapper, self).generate()
+        # load transition model
+        self.transition_model = TransitionModel(self.config)
+        self.transition_model.load()
+        self.model.transition_model = deepcopy(self.transition_model.model)
+        del self.transition_model
+        # load state mapper
+        self.state_mapper = StateMapper(self.config)
+        self.state_mapper.load()
+        self.model.state_mapper = deepcopy(self.state_mapper.model)
+        del self.state_mapper
+        super(TrajectoryMapper, self).train()
+
+    def get_relevant_config(cls, config):
+        return super(TrajectoryMapper, cls).get_relevant_config(config)
