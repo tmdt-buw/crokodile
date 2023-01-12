@@ -18,7 +18,7 @@ logging.getLogger().setLevel(logging.INFO)
 
 from mapper import Mapper
 from stage import Stage
-from trainer import Expert
+from trainer.expert import Expert
 
 
 class Demonstrations(Stage):

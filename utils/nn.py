@@ -56,8 +56,8 @@ def get_weight_matrices(
     weight_matrix_XY_o[-1, -1] = 1
 
     if norm:
-        weight_matrix_XY_p /= weight_matrix_XY_p.sum()
-        weight_matrix_XY_o /= weight_matrix_XY_o.sum()
+        weight_matrix_XY_p = weight_matrix_XY_p.softmax(0)
+        # weight_matrix_XY_o = weight_matrix_XY_o.softmax(0)
 
     return weight_matrix_XY_p, weight_matrix_XY_o
 

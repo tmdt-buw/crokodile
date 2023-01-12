@@ -1,5 +1,5 @@
 from trainer import Trainer
-from pretrainer import Pretrainer
+from .pretrainer import Pretrainer
 
 class Apprentice(Trainer):
     def __init__(self, config):
