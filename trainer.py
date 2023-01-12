@@ -1,7 +1,6 @@
 import logging
 import os
 import re
-import tempfile
 import numpy as np
 from ray.rllib.algorithms.bc import BC
 from ray.rllib.algorithms.marwil import MARWIL
@@ -16,7 +15,6 @@ register_env("robot_task", lambda config: EnvironmentRobotTask(config))
 logging.getLogger().setLevel(logging.INFO)
 
 
-from demonstrations import DemonstrationsTarget
 from stage import Stage
 
 
@@ -160,82 +158,4 @@ class Trainer(Stage):
                 "model": config[cls.__name__]["model"],
                 "train": config[cls.__name__]["train"],
             }
-        }
-
-
-class Expert(Trainer):
-    def __init__(self, config):
-        self.model_cls = config["Expert"]["model_cls"]
-        self.model_config = config["Expert"]["model"]
-        self.model_config.update(config["EnvSource"])
-
-        super(Expert, self).__init__(config)
-
-    def generate(self):
-        super(Expert, self).generate()
-        self.train(**self.config["Expert"]["train"])
-
-    @classmethod
-    def get_relevant_config(cls, config):
-        return super(Expert, cls).get_relevant_config(config)
-
-
-class Pretrainer(Trainer):
-    def __init__(self, config):
-        self.model_cls = config["Pretrainer"]["model_cls"]
-        self.model_config = config["Pretrainer"]["model"]
-        self.model_config.update(config["EnvTarget"])
-
-        super(Pretrainer, self).__init__(config)
-
-    def generate(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            demonstrations = DemonstrationsTarget(self.config)
-            demonstrations.save(tmpdir)
-
-            self.model_config.update(
-                {
-                    "input": tmpdir,
-                    "input_config": {
-                        "format": "json",
-                        "postprocess_inputs": False,
-                    },
-                }
-            )
-
-            super(Pretrainer, self).generate()
-            self.train(**self.config["Pretrainer"]["train"])
-
-    @classmethod
-    def get_relevant_config(cls, config):
-        return {
-            **super(Pretrainer, cls).get_relevant_config(config),
-            **DemonstrationsTarget.get_relevant_config(config),
-        }
-
-
-class Apprentice(Trainer):
-    def __init__(self, config):
-        self.model_cls = config["Apprentice"]["model_cls"]
-        self.model_config = config["Apprentice"]["model"]
-        self.model_config.update(config["EnvTarget"])
-
-        super(Apprentice, self).__init__(config)
-
-    def generate(self):
-        pretrainer = Pretrainer(self.config)
-        weights = pretrainer.model.get_weights()
-        del pretrainer
-
-        super(Apprentice, self).generate()
-
-        self.model.set_weights(weights)
-        del weights
-        self.train(**self.config["Apprentice"]["train"])
-
-    @classmethod
-    def get_relevant_config(cls, config):
-        return {
-            **super(Apprentice, cls).get_relevant_config(config),
-            **Pretrainer.get_relevant_config(config),
         }
