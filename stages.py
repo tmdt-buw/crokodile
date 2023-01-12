@@ -1,138 +1,35 @@
-import hashlib
-import json
 import logging
-import shutil
 import os
 import re
-from copy import deepcopy
-
 import tempfile
-import numpy as np
 from collections import defaultdict
+from copy import deepcopy
 from multiprocessing import cpu_count
 
 import networkx as nx
+import numpy as np
+import torch
 from ray.rllib.algorithms.bc import BC
 from ray.rllib.algorithms.marwil import MARWIL
-from ray.rllib.evaluation.sample_batch_builder import SampleBatchBuilder
-from ray.rllib.offline.json_writer import JsonWriter
-from ray.rllib.offline.json_reader import JsonReader
-from ray.rllib.models.preprocessors import get_preprocessor
-
-import wandb
 from ray.rllib.algorithms.ppo import PPO
+from ray.rllib.evaluation.sample_batch_builder import SampleBatchBuilder
+from ray.rllib.models.preprocessors import get_preprocessor
+from ray.rllib.offline.json_reader import JsonReader
+from ray.rllib.offline.json_writer import JsonWriter
 from ray.tune.registry import register_env
-import torch
 from tqdm import tqdm
 
-from orchestrator import Orchestrator
+import wandb
 from environments.environment_robot_task import EnvironmentRobotTask
 from environments.environments_robot_task.robots import get_robot
+from orchestrator import Orchestrator
 from utils.nn import KinematicChainLoss, get_weight_matrices
 
 register_env("robot_task", lambda config: EnvironmentRobotTask(config))
 logging.getLogger().setLevel(logging.INFO)
 
 
-class Stage:
-    def __init__(self, config):
-        self.config = config
-        self.hash = self.get_config_hash(config)
-        self.tmpdir = tempfile.mkdtemp()
-
-        if "cache" not in config or config["cache"]["mode"] == "disabled":
-            load = False
-            save = False
-        else:
-            load = config["cache"].get("load", False)
-            if type(load) is str:
-                load = self.__class__.__name__ == load
-            elif type(load) is list:
-                load = self.__class__.__name__ in load
-            elif type(load) is dict:
-                load = load.get(self.__class__.__name__, False)
-                if type(load) is str:
-                    self.hash = load
-                    load = True
-
-            save = config["cache"].get("save", False)
-            if type(save) is str:
-                save = self.__class__.__name__ == save
-            elif type(save) is list:
-                save = self.__class__.__name__ in save
-            elif type(save) is dict:
-                save = save.get(self.__class__.__name__, False)
-
-            assert (
-                    type(load) is bool and type(save) is bool
-            ), f"Invalid cache config: {config['cache']}"
-
-        logging.info(f"Stage {self.__class__.__name__}:"
-                     f"hash: {self.hash}, "
-                     f"tmpdir: {self.tmpdir}, "
-                     f"load: {load}, "
-                     f"save: {save}")
-
-        if load:
-            try:
-                logging.info(f"Loading cache for {self.__class__.__name__}.")
-
-                self.load()
-                # Don't save again if we loaded
-                save = False
-            except Exception as e:
-                logging.warning(
-                    f"Loading cache not possible "
-                    f"for {self.__class__.__name__}. "
-                )
-                logging.exception(e)
-                self.generate()
-        else:
-            logging.info(f"Generating {self.__class__.__name__}.")
-
-            self.generate()
-
-        if save:
-            logging.info(f"Saving {self.__class__.__name__}.")
-
-            self.save()
-
-    def __del__(self):
-        try:
-            shutil.rmtree(self.tmpdir)
-        except AttributeError:
-            pass
-
-    def generate(self):
-        raise NotImplementedError(
-            f"generate() not implemented for {self.__class__.__name__}"
-        )
-
-    def load(self):
-        raise NotImplementedError(
-            f"load() not implemented for {self.__class__.__name__}"
-        )
-
-    def save(self):
-        raise NotImplementedError(
-            f"save() not implemented for {self.__class__.__name__}"
-        )
-
-    @classmethod
-    def get_relevant_config(cls, config):
-        raise NotImplementedError(
-            f"get_relevant_config() not implemented for {cls.__name__}"
-        )
-
-    @classmethod
-    def get_config_hash(cls, config):
-        return hashlib.sha256(
-            json.dumps(
-                cls.get_relevant_config(config),
-                default=lambda o: "<not serializable>",
-                sort_keys=True,
-            ).encode("utf-8")
-        ).hexdigest()[:6]
+from stage import Stage
 
 
 class Trainer(Stage):
