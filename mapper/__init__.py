@@ -18,6 +18,8 @@ class Mapper(Stage):
             )
             return super(Mapper, cls).__new__(cls)
         elif config["Mapper"]["type"] == "explicit":
+            # import here to avoid circular import
+            from .mapper_explicit import MapperExplicit
             return super(Mapper, cls).__new__(MapperExplicit)
         else:
             raise ValueError(f"Invalid mapper type: {config['Mapper']['type']}")

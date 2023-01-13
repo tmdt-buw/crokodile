@@ -1,4 +1,14 @@
-from lit_models.lit_trainer import TransitionModel, Discriminator, StateMapper, TrajectoryMapper
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+
+from lit_models.lit_trainer import (
+    TransitionModel,
+    Discriminator,
+    StateMapper,
+    TrajectoryMapper,
+)
 import numpy as np
 
 data_file_A = "panda_5_20000_4000.pt"
@@ -7,15 +17,6 @@ data_file_B = "ur5_5_20000_4000.pt"
 
 def transition_model_main():
     config_A = {
-        "wandb_config": {
-            "project": "robot2robot",
-            "entity": "robot2robot",
-        },
-        "cache": {
-            "mode": "wandb",
-            "load": True,
-            "save": True,
-        },
         "TransitionModel": {
             "model_cls": "transition_model",
             "data": data_file_B,
@@ -27,7 +28,7 @@ def transition_model_main():
                 "out_activation": "tanh",
             },
             "train": {
-                "max_epochs": 50,
+                "max_epochs": 1,
                 "batch_size": 2048,
                 "lr": 1e-3,
             },
@@ -35,7 +36,7 @@ def transition_model_main():
         },
     }
 
-    model = TransitionModel(config_A)
+    TransitionModel(config_A)
 
 
 def discriminator_main():
@@ -240,6 +241,6 @@ def trajectory_mapper_main():
 
 if __name__ == "__main__":
     transition_model_main()
-    #discriminator_main()
-    #state_mapper_main()
+    # discriminator_main()
+    # state_mapper_main()
     # trajectory_mapper_main()

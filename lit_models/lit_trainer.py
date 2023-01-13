@@ -14,7 +14,8 @@ from lit_models.transition_model import LitTransitionModel
 from lit_models.discriminator import LitDiscriminator
 from lit_models.state_mapper import LitStateMapper
 from lit_models.trajectory_mapper import LitTrajectoryMapper
-from main import Stage, Mapper
+from stage import Stage
+from mapper import Mapper
 
 
 class LitTrainer(Stage):
@@ -92,7 +93,7 @@ class LitTrainer(Stage):
     def train(self):
         with wandb.init(
             config=self.get_relevant_config(self.config),
-            **self.config["wandb_config"],
+            **self.config.get("wandb_config", {"mode": "disabled"}),
             group=self.__class__.__name__,
             tags=[self.hash],
         ) as run:

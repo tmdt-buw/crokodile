@@ -1,6 +1,8 @@
 .vscode
+.idea
 
 __pycache__
 
 wandb
 archive
+data

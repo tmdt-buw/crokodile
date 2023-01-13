@@ -1,19 +1,20 @@
 name: r2r
 channels:
-  - pytorch
-  - nvidia
   - conda-forge
+  - nvidia
+  - pytorch
 #  - defaults
 dependencies:
+  - numba
   - numpy
-  - tqdm
   - pip
-  - wandb
   - pybullet
   - python=3.8
   - pytorch
   - pytorch-cuda=11.7
+  - tqdm
+  - wandb
   - pip:
       - gym
-      - "ray[rllib]"
       - pytorch-lightning
+      - "ray[rllib]"
