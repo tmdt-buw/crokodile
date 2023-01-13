@@ -5,37 +5,6 @@ from trainer.apprentice import Apprentice
 
 if __name__ == "__main__":
 
-    config_model = {
-        "fcnet_hiddens": [180] * 5,
-        "fcnet_activation": "relu",
-        "vf_share_layers": False,
-    }
-
-    config_algorithm = {
-        "framework": "torch",
-        "callbacks": Callbacks,
-        "model": config_model,
-        "num_sgd_iter": 3,
-        "lr": 3e-4,
-        "train_batch_size": 2496,
-        "sgd_minibatch_size": 256,
-        "disable_env_checking": True,
-        "num_workers": 1,
-        "num_gpus": 0,
-    }
-
-    config_robot_source = {
-        "name": "panda",
-        "sim_time": 0.1,
-        "scale": 0.1,
-    }
-
-    config_robot_target = {
-        "name": "ur5",
-        "sim_time": 0.1,
-        "scale": 0.2,
-    }
-
     config_task = {
         "name": "reach",
         "max_steps": 25,
@@ -54,20 +23,37 @@ if __name__ == "__main__":
         "EnvSource": {
             "env": "robot_task",
             "env_config": {
-                "robot_config": config_robot_source,
+                "robot_config": {
+                    "name": "panda",
+                    "sim_time": 0.1,
+                    "scale": 0.1,
+                },
                 "task_config": config_task,
+                "disable_env_checking": True,
             },
         },
         "EnvTarget": {
             "env": "robot_task",
             "env_config": {
-                "robot_config": config_robot_target,
+                "robot_config": {
+                    "name": "ur5",
+                    "sim_time": 0.1,
+                    "scale": 1.0,
+                },
                 "task_config": config_task,
+                "disable_env_checking": True,
             },
         },
         "Expert": {
             "model_cls": "PPO",
-            "model": deepcopy(config_algorithm),
+            "model": {
+                "framework": "torch",
+                "callbacks": Callbacks,
+                "model": {
+                    "vf_share_layers": False,
+                },
+                "disable_env_checking": True,
+            },
             "train": {
                 "max_epochs": 1,
                 "success_threshold": 0.9,
@@ -87,7 +73,9 @@ if __name__ == "__main__":
             "model_cls": "MARWIL",
             "model": {
                 "framework": "torch",
-                "model": config_model,
+                "model": {
+                    "vf_share_layers": False,
+                },
                 "actions_in_input_normalized": True,
                 "callbacks": Callbacks,
                 "lr": 3e-4,
@@ -113,7 +101,14 @@ if __name__ == "__main__":
         },
         "Apprentice": {
             "model_cls": "PPO",
-            "model": deepcopy(config_algorithm),
+            "model": {
+                "framework": "torch",
+                "callbacks": Callbacks,
+                "model": {
+                    "vf_share_layers": False,
+                },
+                "disable_env_checking": True,
+            },
             "train": {
                 "max_epochs": 1,
                 "success_threshold": 0.9,

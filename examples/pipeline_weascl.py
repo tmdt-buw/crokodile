@@ -239,7 +239,7 @@ def trajectory_mapper_main():
 
 
 if __name__ == "__main__":
-    #transition_model_main()
+    transition_model_main()
     #discriminator_main()
     #state_mapper_main()
-    trajectory_mapper_main()
+    # trajectory_mapper_main()
