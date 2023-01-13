@@ -126,37 +126,6 @@ class LitTrainer(Stage):
         }
 
 
-class TransitionModel(LitTrainer):
-    def __init__(self, config):
-        self.model_cls = config["TransitionModel"]["model_cls"]
-        self.model_config = config["TransitionModel"]
-        super(TransitionModel, self).__init__(config)
-
-    def generate(self):
-        super(TransitionModel, self).generate()
-        self.train()
-
-    @classmethod
-    def get_relevant_config(cls, config):
-        return super(TransitionModel, cls).get_relevant_config(config)
-
-
-class Discriminator(LitTrainer):
-    def __init__(self, config):
-        self.model_cls = config["Discriminator"]["model_cls"]
-        self.model_config = config["Discriminator"]
-
-        super(Discriminator, self).__init__(config)
-
-    def generate(self):
-        super(Discriminator, self).generate()
-        self.train()
-
-    @classmethod
-    def get_relevant_config(cls, config):
-        return super(Discriminator, cls).get_relevant_config(config)
-
-
 class StateMapper(LitTrainer):
     discriminator = None
 
