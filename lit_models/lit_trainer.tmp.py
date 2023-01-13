@@ -7,7 +7,6 @@ import torch
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
-from copy import deepcopy
 
 from lit_models.transition_model import LitTransitionModel
 from lit_models.discriminator import LitDiscriminator
@@ -124,24 +123,3 @@ class LitTrainer(Stage):
             "train": config[cls.__name__]["train"],
             "callbacks": config[cls.__name__]["callbacks"],
         }
-
-
-class StateMapper(LitTrainer):
-    discriminator = None
-
-    def __init__(self, config):
-        self.model_cls = config["StateMapper"]["model_cls"]
-        self.model_config = config["StateMapper"]
-
-        super(StateMapper, self).__init__(config)
-
-    def generate(self):
-        super(StateMapper, self).generate()
-        self.discriminator = Discriminator(self.config)
-        self.model.discriminator = deepcopy(self.discriminator.model)
-        del self.discriminator
-        super(StateMapper, self).train()
-
-    @classmethod
-    def get_relevant_config(cls, config):
-        return super(StateMapper, cls).get_relevant_config(config)
