@@ -10,7 +10,7 @@ from torch.optim.lr_scheduler import MultiStepLR
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from config import data_folder
-from lit_models.lit_model import LitModel
+from stage import LitStage
 from utils.nn import create_network
 
 
@@ -95,14 +95,9 @@ class DeepSVDDLoss(torch.nn.Module):
         return torch.quantile(torch.sqrt(dist), 1 - nu)
 
 
-class Discriminator(LitModel):
+class Discriminator(LitStage):
     def __init__(self, config):
         super(Discriminator, self).__init__(config)
-
-    def generate(self):
-        self.loss_function = self.get_loss()
-
-        super(Discriminator, self).generate()
 
     def get_model(self):
         data_path = os.path.join(
@@ -156,20 +151,6 @@ class Discriminator(LitModel):
 
         return [optimizer_discriminator], [scheduler_disc]
 
-    def train_dataloader(self):
-        return self.get_dataloader(
-            self.config[self.__class__.__name__]["data"], "train"
-        )
-
-    def val_dataloader(self):
-        return self.get_dataloader(
-            self.config[self.__class__.__name__]["data"], "test", False
-        )
-
-    def forward(self, x):
-        embedded_state = self.model(x)
-        return embedded_state
-
     def loss(self, batch):
         trajectories_states, _ = batch
         states_x = trajectories_states.reshape(-1, trajectories_states.shape[-1])
@@ -179,25 +160,6 @@ class Discriminator(LitModel):
         )
         if radius:
             self.model.radius.data = radius
-        return loss, scores
-
-    def training_step(self, batch, batch_idx):
-        loss, _ = self.loss(batch)
-        self.log(
-            f"train_loss_{self.__class__.__name__}"
-            + self.config[self.__class__.__name__]["log_suffix"],
-            loss.item(),
-            on_step=False,
-            on_epoch=True,
-        )
         return loss
 
-    def validation_step(self, batch, batch_idx):
-        loss, _ = self.loss(batch)
-        self.log(
-            f"validation_loss_{self.__class__.__name__}",
-            loss.item(),
-            on_step=False,
-            on_epoch=True,
-        )
-        return loss
+    

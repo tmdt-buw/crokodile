@@ -9,17 +9,14 @@ from torch.nn import MSELoss
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from config import data_folder
-from lit_models.lit_model import LitModel
+from stage import LitStage
 from utils.nn import create_network
 
 
-class TransitionModel(LitModel):
+class TransitionModel(LitStage):
     def __init__(self, config):
         # self.model = LitTransitionModel(config)
         super(TransitionModel, self).__init__(config)
-
-    def generate(self):
-        super(TransitionModel, self).generate()
 
     @cached_property
     def loss_function(self):
@@ -44,16 +41,6 @@ class TransitionModel(LitModel):
         )
         return optimizer_model
 
-    def train_dataloader(self):
-        return self.get_dataloader(self.config[self.__class__.__name__]["data"], "train")
-
-    def val_dataloader(self):
-        return self.get_dataloader(self.config[self.__class__.__name__]["data"], "test", False)
-
-    def forward(self, x):
-        next_states = self.model(x)
-        return next_states
-
     def loss(self, batch):
         trajectories_states, trajectories_actions = batch
 
@@ -69,22 +56,3 @@ class TransitionModel(LitModel):
         loss_transition_model = self.loss_function(next_states_predicted, next_states)
         return loss_transition_model
 
-    def training_step(self, batch, batch_idx):
-        loss = self.loss(batch)
-        self.log(
-            f"train_loss_{self.__class__.__name__}",
-            loss,
-            on_step=False,
-            on_epoch=True,
-        )
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        loss = self.loss(batch)
-        self.log(
-            f"validation_loss_{self.__class__.__name__}",
-            loss,
-            on_step=False,
-            on_epoch=True,
-        )
-        return loss

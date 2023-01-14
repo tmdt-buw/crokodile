@@ -6,7 +6,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 import numpy as np
 
 from world_models.discriminator import Discriminator
-from world_models.transition_trainer import TransitionModel
+from world_models.transition import TransitionModel
 
 data_file_A = "panda_5_20000_4000.pt"
 data_file_B = "ur5_5_20000_4000.pt"
@@ -29,7 +29,6 @@ def transition_model_main():
                 "batch_size": 2048,
                 "lr": 1e-3,
             },
-            "callbacks": {},
         },
     }
 
@@ -60,7 +59,6 @@ def discriminator_main():
                 "scheduler_epoch": 150,
                 "lr_decrease": 0.1,
             },
-            "callbacks": {},
         },
     }
 
@@ -94,7 +92,6 @@ def state_mapper_main():
                 "batch_size": 512,
                 "lr": 1e-3,
             },
-            "callbacks": {},
         },
         "Discriminator": {
             "model_cls": "discriminator",
@@ -118,7 +115,6 @@ def state_mapper_main():
                 "scheduler_epoch": 150,
                 "lr_decrease": 0.1,
             },
-            "callbacks": {},
         },
     }
     model = StateMapper(config_AB)
@@ -151,7 +147,6 @@ def trajectory_mapper_main():
                 "batch_size": 512,
                 "lr": 1e-3,
             },
-            "callbacks": {},
         },
         "Discriminator": {
             "model_cls": "discriminator",
@@ -175,7 +170,6 @@ def trajectory_mapper_main():
                 "scheduler_epoch": 150,
                 "lr_decrease": 0.1,
             },
-            "callbacks": {},
         },
         "TransitionModel": {
             "model_cls": "transition_model",
@@ -192,7 +186,6 @@ def trajectory_mapper_main():
                 "batch_size": 2048,
                 "lr": 1e-3,
             },
-            "callbacks": {},
         },
         "TrajectoryMapper": {
             "model_cls": "trajectory_mapper",
@@ -221,14 +214,13 @@ def trajectory_mapper_main():
                 "batch_size": 512,
                 "lr": 1e-3,
             },
-            "callbacks": {},
         },
     }
     model = TrajectoryMapper(config_AB)
 
 
 if __name__ == "__main__":
-    # transition_model_main()
-    discriminator_main()
+    transition_model_main()
+    # discriminator_main()
     # state_mapper_main()
     # trajectory_mapper_main()

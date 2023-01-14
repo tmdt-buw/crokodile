@@ -1,10 +1,24 @@
+import glob
 import hashlib
 import json
 import logging
+import os
 import shutil
+import sys
 import tempfile
+from pathlib import Path
 
-logging.getLogger().setLevel(logging.INFO)
+import pytorch_lightning as pl
+import torch
+from pytorch_lightning import LightningModule
+from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.loggers import WandbLogger
+from torch.utils.data import DataLoader, TensorDataset
+
+import wandb
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+from config import data_folder
 
 
 class Stage:
@@ -12,6 +26,9 @@ class Stage:
         self.config = config
         self.hash = self.get_config_hash(config)
         self.tmpdir = tempfile.mkdtemp()
+
+        self.log_prefix = config[self.__class__.__name__].get("log_prefix", "")
+        self.log_suffix = config[self.__class__.__name__].get("log_suffix", "")
 
         if "cache" not in config or config["cache"]["mode"] == "disabled":
             load = False
@@ -37,14 +54,16 @@ class Stage:
                 save = save.get(self.__class__.__name__, False)
 
             assert (
-                    type(load) is bool and type(save) is bool
+                type(load) is bool and type(save) is bool
             ), f"Invalid cache config: {config['cache']}"
 
-        logging.info(f"Stage {self.__class__.__name__}:"
-                     f"hash: {self.hash}, "
-                     f"tmpdir: {self.tmpdir}, "
-                     f"load: {load}, "
-                     f"save: {save}")
+        logging.info(
+            f"Stage {self.__class__.__name__}:"
+            f"hash: {self.hash}, "
+            f"tmpdir: {self.tmpdir}, "
+            f"load: {load}, "
+            f"save: {save}"
+        )
 
         if load:
             try:
@@ -55,8 +74,7 @@ class Stage:
                 save = False
             except Exception as e:
                 logging.warning(
-                    f"Loading cache not possible "
-                    f"for {self.__class__.__name__}. "
+                    f"Loading cache not possible " f"for {self.__class__.__name__}. "
                 )
                 logging.exception(e)
                 self.generate()
@@ -106,30 +124,14 @@ class Stage:
                 sort_keys=True,
             ).encode("utf-8")
         ).hexdigest()[:6]
-import glob
-import logging
-import os
-import sys
-from pathlib import Path
-
-import pytorch_lightning as pl
-import torch
-from pytorch_lightning import LightningModule
-from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning.loggers import WandbLogger
-from torch.utils.data import DataLoader, TensorDataset
-
-import wandb
-
-sys.path.append(str(Path(__file__).resolve().parents[1]))
-from config import data_folder
-from stage import Stage
 
 
-class LitModel(LightningModule, Stage):
+class LitStage(LightningModule, Stage):
     def __init__(self, config):
         LightningModule.__init__(self)
         Stage.__init__(self, config)
+
+    """Stage methods"""
 
     def save(self, path=None):
         if path is None and self.config["cache"]["mode"] == "wandb":
@@ -217,8 +219,9 @@ class LitModel(LightningModule, Stage):
             # "log_suffix": config[cls.__name__]["log_suffix"],
             "model": config[cls.__name__]["model"],
             "train": config[cls.__name__]["train"],
-            "callbacks": config[cls.__name__]["callbacks"],
         }
+
+    """LightningModule methods"""
 
     def get_model(self):
         raise NotImplementedError(
@@ -248,19 +251,17 @@ class LitModel(LightningModule, Stage):
         return dataloader
 
     def train_dataloader(self):
-        raise NotImplementedError(
-            f"train_dataloader() not implemented for {self.__class__.__name__}"
+        return self.get_dataloader(
+            self.config[self.__class__.__name__]["data"], "train"
         )
 
     def val_dataloader(self):
-        raise NotImplementedError(
-            f"val_dataloader() not implemented for {self.__class__.__name__}"
+        return self.get_dataloader(
+            self.config[self.__class__.__name__]["data"], "test", False
         )
 
     def forward(self, x):
-        raise NotImplementedError(
-            f"forward() not implemented for {self.__class__.__name__}"
-        )
+        return self.model(x)
 
     def loss(self, batch):
         raise NotImplementedError(
@@ -268,11 +269,21 @@ class LitModel(LightningModule, Stage):
         )
 
     def training_step(self, batch, batch_idx):
-        raise NotImplementedError(
-            f"training_step() not implemented for {self.__class__.__name__}"
+        loss = self.loss(batch)
+        self.log(
+            f"train_loss_{self.__class__.__name__}",
+            loss,
+            on_step=False,
+            on_epoch=True,
         )
+        return loss
 
     def validation_step(self, batch, batch_idx):
-        raise NotImplementedError(
-            f"validation_step() not implemented for {self.__class__.__name__}"
+        loss = self.loss(batch)
+        self.log(
+            f"validation_loss_{self.log_prefix}{self.__class__.__name__}{self.log_suffix}",
+            loss,
+            on_step=False,
+            on_epoch=True,
         )
+        return loss
