@@ -3,12 +3,13 @@ from copy import deepcopy
 import numpy as np
 import torch
 
-from lit_models.lit_trainer import LitTrainer, StateMapper
-from lit_models.transition_model import TransitionModel
+from .mapper_state import StateMapper
+from stage import LitStage
+from world_models.transition import TransitionModel
 from mapper import Mapper
 
 
-class TrajectoryMapper(LitTrainer):
+class TrajectoryMapper(LitStage):
     transition_model = None
     state_mapper = None
 
