@@ -3,24 +3,21 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from lit_models.lit_trainer import (
-    TransitionModel,
-    Discriminator,
-    StateMapper,
-    TrajectoryMapper,
-)
 import numpy as np
+
+from world_models.discriminator import Discriminator
+from world_models.transition_trainer import TransitionModel
 
 data_file_A = "panda_5_20000_4000.pt"
 data_file_B = "ur5_5_20000_4000.pt"
 
 
 def transition_model_main():
-    config_A = {
+    config = {
         "TransitionModel": {
             "model_cls": "transition_model",
             "data": data_file_B,
-            "log_suffix": "_B",
+            # "log_suffix": "_B",
             "model": {
                 "network_width": 256,
                 "network_depth": 4,
@@ -36,20 +33,11 @@ def transition_model_main():
         },
     }
 
-    TransitionModel(config_A)
+    TransitionModel(config)
 
 
 def discriminator_main():
-    config_A = {
-        "wandb_config": {
-            "project": "robot2robot",
-            "entity": "robot2robot",
-        },
-        "cache": {
-            "mode": "wandb",
-            "load": False,
-            "save": True,
-        },
+    config = {
         "Discriminator": {
             "model_cls": "discriminator",
             "data": data_file_B,
@@ -66,7 +54,7 @@ def discriminator_main():
                 "warmup_epochs": 10,
             },
             "train": {
-                "max_epochs": 50,
+                "max_epochs": 1,
                 "batch_size": 512,
                 "lr": 1e-3,
                 "scheduler_epoch": 150,
@@ -76,7 +64,7 @@ def discriminator_main():
         },
     }
 
-    Discriminator(config_A)
+    Discriminator(config)
 
 
 def state_mapper_main():
@@ -209,7 +197,7 @@ def trajectory_mapper_main():
         "TrajectoryMapper": {
             "model_cls": "trajectory_mapper",
             "data": {"data_file_X": data_file_A, "data_file_Y": data_file_B},
-            "log_suffix": "_AB",
+            # "log_suffix": "_AB",
             "model": {
                 "weight_matrix_exponent_p": np.inf,
                 "behavior_dim": 64,
@@ -240,7 +228,7 @@ def trajectory_mapper_main():
 
 
 if __name__ == "__main__":
-    transition_model_main()
-    # discriminator_main()
+    # transition_model_main()
+    discriminator_main()
     # state_mapper_main()
     # trajectory_mapper_main()

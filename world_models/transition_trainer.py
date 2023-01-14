@@ -1,5 +1,6 @@
 import os
 import sys
+from functools import cached_property
 from pathlib import Path
 
 import torch
@@ -7,9 +8,9 @@ from torch.nn import MSELoss
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from utils.nn import create_network
-from lit_models.lit_model import LitModel
 from config import data_folder
+from lit_models.lit_model import LitModel
+from utils.nn import create_network
 
 
 class TransitionModel(LitModel):
@@ -17,11 +18,12 @@ class TransitionModel(LitModel):
         # self.model = LitTransitionModel(config)
         super(TransitionModel, self).__init__(config)
 
-
     def generate(self):
-        self.loss_function = MSELoss()
-
         super(TransitionModel, self).generate()
+
+    @cached_property
+    def loss_function(self):
+        return MSELoss()
 
     def get_model(self):
         data_path = os.path.join(data_folder, self.config[self.__class__.__name__]["data"])

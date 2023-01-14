@@ -1,17 +1,17 @@
-from typing import Dict
-
 import os
 import sys
+from functools import cached_property
 from pathlib import Path
+from typing import Dict
 
 import torch
 from torch.optim.lr_scheduler import MultiStepLR
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from utils.nn import create_network
-from lit_models.lit_model import LitModel
 from config import data_folder
+from lit_models.lit_model import LitModel
+from utils.nn import create_network
 
 
 class DeepSVDD(torch.nn.Module):
@@ -95,48 +95,61 @@ class DeepSVDDLoss(torch.nn.Module):
         return torch.quantile(torch.sqrt(dist), 1 - nu)
 
 
-class LitDiscriminator(LitModel):
+class Discriminator(LitModel):
     def __init__(self, config):
-        super(LitDiscriminator, self).__init__(config["Discriminator"])
+        super(Discriminator, self).__init__(config)
+
+    def generate(self):
         self.loss_function = self.get_loss()
 
+        super(Discriminator, self).generate()
+
     def get_model(self):
-        data_path = os.path.join(data_folder, self.lit_config["data"])
+        data_path = os.path.join(
+            data_folder, self.config[self.__class__.__name__]["data"]
+        )
         data = torch.load(f=data_path)
-        self.lit_config["model"]["in_dim"] = data["trajectories_states_train"].shape[-1]
-        discriminator_model = DeepSVDD(self.lit_config["model"])
+        self.config[self.__class__.__name__]["model"]["in_dim"] = data[
+            "trajectories_states_train"
+        ].shape[-1]
+        discriminator_model = DeepSVDD(self.config[self.__class__.__name__]["model"])
         # init center c with initial forward pass of some data
         data_c = data["trajectories_states_train"][:, :-1].reshape(
             -1, data["trajectories_states_train"].shape[-1]
-        )[: self.lit_config["model"]["init_center_samples"], :]
+        )[: self.config[self.__class__.__name__]["model"]["init_center_samples"], :]
         discriminator_model.eval()
         with torch.no_grad():
             output = discriminator_model(data_c)
             c = torch.mean(output, dim=0)
         # If c_i is too close to 0, set to +-eps. Reason: a zero unit can be trivially matched with zero weights.
-        eps = self.lit_config["model"]["eps"]
+        eps = self.config[self.__class__.__name__]["model"]["eps"]
         c[(abs(c) < eps) & (c < 0)] = -eps
         c[(abs(c) < eps) & (c > 0)] = eps
         discriminator_model.c.data = c
 
         return discriminator_model
 
-    def get_loss(self):
-        discriminator_loss = DeepSVDDLoss(
-            self.lit_config["model"]["objective"],
-            self.lit_config["model"]["warmup_epochs"],
+    @cached_property
+    def loss_function(self):
+        return DeepSVDDLoss(
+            self.config[self.__class__.__name__]["model"]["objective"],
+            self.config[self.__class__.__name__]["model"]["warmup_epochs"],
         )
-        return discriminator_loss
 
     def configure_optimizers(self):
         optimizer_discriminator = torch.optim.AdamW(
-            self.model.parameters(), lr=self.lit_config["train"].get("lr", 3e-4)
+            self.model.parameters(),
+            lr=self.config[self.__class__.__name__]["train"].get("lr", 3e-4),
         )
         scheduler_disc = {
             "scheduler": MultiStepLR(
                 optimizer_discriminator,
-                [self.lit_config["train"].get("scheduler_epoch", 150)],
-                self.lit_config["train"].get("lr_decrease", 0.1),
+                [
+                    self.config[self.__class__.__name__]["train"].get(
+                        "scheduler_epoch", 150
+                    )
+                ],
+                self.config[self.__class__.__name__]["train"].get("lr_decrease", 0.1),
             ),
             "name": "scheduler_lr_disc",
         }
@@ -144,10 +157,14 @@ class LitDiscriminator(LitModel):
         return [optimizer_discriminator], [scheduler_disc]
 
     def train_dataloader(self):
-        return self.get_dataloader(self.lit_config["data"], "train")
+        return self.get_dataloader(
+            self.config[self.__class__.__name__]["data"], "train"
+        )
 
     def val_dataloader(self):
-        return self.get_dataloader(self.lit_config["data"], "test", False)
+        return self.get_dataloader(
+            self.config[self.__class__.__name__]["data"], "test", False
+        )
 
     def forward(self, x):
         embedded_state = self.model(x)
@@ -167,7 +184,8 @@ class LitDiscriminator(LitModel):
     def training_step(self, batch, batch_idx):
         loss, _ = self.loss(batch)
         self.log(
-            "train_loss_LitDiscriminator" + self.lit_config["log_suffix"],
+            f"train_loss_{self.__class__.__name__}"
+            + self.config[self.__class__.__name__]["log_suffix"],
             loss.item(),
             on_step=False,
             on_epoch=True,
@@ -177,7 +195,7 @@ class LitDiscriminator(LitModel):
     def validation_step(self, batch, batch_idx):
         loss, _ = self.loss(batch)
         self.log(
-            "validation_loss_LitDiscriminator" + self.lit_config["log_suffix"],
+            f"validation_loss_{self.__class__.__name__}",
             loss.item(),
             on_step=False,
             on_epoch=True,

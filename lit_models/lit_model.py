@@ -1,14 +1,17 @@
+import glob
+import logging
 import os
 import sys
 from pathlib import Path
-import wandb
-import logging
-import torch
-from torch.utils.data import DataLoader, TensorDataset
+
 import pytorch_lightning as pl
+import torch
 from pytorch_lightning import LightningModule
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
+from torch.utils.data import DataLoader, TensorDataset
+
+import wandb
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from config import data_folder
