@@ -200,6 +200,11 @@ class StateMapper(LitStage):
             loss_state_mapper_XY_o,
         )
 
+    """
+        Perform training step. Customized behavior to log different loss compoents.
+        Refer to pytorch lightning docs.
+    """
+
     def training_step(self, batch, batch_idx):
         (
             loss_state_mapper,
@@ -232,6 +237,11 @@ class StateMapper(LitStage):
             on_epoch=True,
         )
         return loss_state_mapper_disc
+
+    """
+        Perform validation step. Customized behavior to log different loss compoents.
+        Refer to pytorch lightning docs.
+    """
 
     def validation_step(self, batch, batch_idx):
         (
