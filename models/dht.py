@@ -5,7 +5,7 @@ import numpy as np
 
 class DHT_Transform(torch.nn.Module):
     def __init__(
-        self, theta=None, d=None, a=0, alpha=0, proximal=False, upscale_dim=False
+        self, theta=None, d=None, a=0, alpha=0, proximal=False, upscale_dim=False, device="cpu",
     ):
         super(DHT_Transform, self).__init__()
 

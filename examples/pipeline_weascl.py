@@ -38,9 +38,7 @@ def transition_model_main():
 def discriminator_main():
     config = {
         "Discriminator": {
-            "model_cls": "discriminator",
             "data": data_file_B,
-            "log_suffix": "_A",
             "model": {
                 "objective": "soft-boundary",
                 "eps": 0.01,
@@ -66,16 +64,9 @@ def discriminator_main():
 
 
 def state_mapper_main():
-    config_AB = {
-        "wandb_config": {
-            "project": "robot2robot",
-            "entity": "robot2robot",
-        },
-        "cache": {
-            "mode": "wandb",
-            "load": {"Discriminator": "5444fd"},
-            "save": True,
-        },
+    from mapper.mapper_state import StateMapper
+
+    config = {
         "StateMapper": {
             "model_cls": "state_mapper",
             "data": {"data_file_X": data_file_A, "data_file_Y": data_file_B},
@@ -88,15 +79,13 @@ def state_mapper_main():
                 "weight_matrix_exponent_p": np.inf,
             },
             "train": {
-                "max_epochs": 50,
+                "max_epochs": 1,
                 "batch_size": 512,
                 "lr": 1e-3,
             },
         },
         "Discriminator": {
-            "model_cls": "discriminator",
             "data": data_file_B,
-            "log_suffix": "_A",
             "model": {
                 "objective": "soft-boundary",
                 "eps": 0.01,
@@ -109,7 +98,7 @@ def state_mapper_main():
                 "warmup_epochs": 10,
             },
             "train": {
-                "max_epochs": 50,
+                "max_epochs": 1,
                 "batch_size": 512,
                 "lr": 1e-3,
                 "scheduler_epoch": 150,
@@ -117,7 +106,7 @@ def state_mapper_main():
             },
         },
     }
-    model = StateMapper(config_AB)
+    model = StateMapper(config)
 
 
 def trajectory_mapper_main():
@@ -220,7 +209,7 @@ def trajectory_mapper_main():
 
 
 if __name__ == "__main__":
-    transition_model_main()
+    # transition_model_main()
     # discriminator_main()
-    # state_mapper_main()
+    state_mapper_main()
     # trajectory_mapper_main()

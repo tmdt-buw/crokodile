@@ -396,6 +396,8 @@ class KinematicChainLoss(torch.nn.Module):
 
         if self.reduction:
             loss = loss.mean()
+            loss_positions = loss_positions.mean()
+            loss_orientations = loss_orientations.mean()
 
         if self.verbose_output:
             return loss, loss_positions, loss_orientations

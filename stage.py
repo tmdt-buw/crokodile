@@ -29,6 +29,7 @@ class Stage:
 
         self.log_prefix = config[self.__class__.__name__].get("log_prefix", "")
         self.log_suffix = config[self.__class__.__name__].get("log_suffix", "")
+        self.log_id = self.log_prefix + self.__class__.__name__ + self.log_suffix
 
         if "cache" not in config or config["cache"]["mode"] == "disabled":
             load = False
@@ -162,7 +163,7 @@ class LitStage(LightningModule, Stage):
             callbacks = [
                 # todo: adjust wandb tag to be based on env config once static data files are removed
                 ModelCheckpoint(
-                    monitor=f"validation_loss_{self.__class__.__name__}",
+                    monitor=f"validation_loss_{self.log_id}",
                     mode="min",
                     filename=f"checkpoint_{self.hash}",
                 )
@@ -281,7 +282,7 @@ class LitStage(LightningModule, Stage):
     def validation_step(self, batch, batch_idx):
         loss = self.loss(batch)
         self.log(
-            f"validation_loss_{self.log_prefix}{self.__class__.__name__}{self.log_suffix}",
+            f"validation_loss_{self.log_id}",
             loss,
             on_step=False,
             on_epoch=True,

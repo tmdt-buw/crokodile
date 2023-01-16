@@ -1,25 +1,4 @@
 from copy import deepcopy
-
-
-class StateMapper(LitTrainer):
-    discriminator = None
-
-    def __init__(self, config):
-        self.model_cls = config["StateMapper"]["model_cls"]
-        self.model_config = config["StateMapper"]
-
-        super(StateMapper, self).__init__(config)
-
-    def generate(self):
-        super(StateMapper, self).generate()
-        self.discriminator = Discriminator(self.config)
-        self.model.discriminator = deepcopy(self.discriminator.model)
-        del self.discriminator
-        super(StateMapper, self).train()
-
-    @classmethod
-    def get_relevant_config(cls, config):
-        return super(StateMapper, cls).get_relevant_config(config)
 import os
 import sys
 from pathlib import Path
@@ -27,35 +6,44 @@ from pathlib import Path
 from torch.nn.functional import relu
 import torch
 from pytorch_lightning.trainer.supporters import CombinedLoader
-from lit_models.discriminator import LitDiscriminator
+from world_models.discriminator import Discriminator
 from models.dht import get_dht_model
 
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from utils.nn import create_network, KinematicChainLoss
-from lit_models.lit_model import LitModel
 from config import data_folder
+from stage import LitStage
+from functools import cached_property
 
 
-class LitStateMapper(LitModel):
+class StateMapper(LitStage):
     def __init__(self, config):
-        super(LitStateMapper, self).__init__(config["StateMapper"])
-        self.dht_model_A, self.dht_model_B = self.get_dht_models()
-        self.loss_function = self.get_kinematic_chain_loss()
-        self.discriminator = LitDiscriminator(config)
+        super(StateMapper, self).__init__(config)
+
+    @classmethod
+    def get_relevant_config(cls, config):
+        return {
+            **super(StateMapper, cls).get_relevant_config(config),
+            **Discriminator.get_relevant_config(config),
+        }
 
     def get_model(self):
-        data_path_X = os.path.join(data_folder, self.lit_config["data"]["data_file_X"])
+        data_path_X = os.path.join(
+            data_folder, self.config[self.__class__.__name__]["data"]["data_file_X"]
+        )
         data_X = torch.load(data_path_X)
 
-        data_path_Y = os.path.join(data_folder, self.lit_config["data"]["data_file_Y"])
+        data_path_Y = os.path.join(
+            data_folder, self.config[self.__class__.__name__]["data"]["data_file_Y"]
+        )
         data_Y = torch.load(data_path_Y)
 
         state_mapper_XY = create_network(
             in_dim=data_X["trajectories_states_train"].shape[-1],
             out_dim=data_Y["trajectories_states_train"].shape[-1],
-            **self.lit_config["model"],
+            **self.config[self.__class__.__name__]["model"],
         )
 
         return state_mapper_XY
@@ -93,11 +81,16 @@ class LitStateMapper(LitModel):
 
         return weight_matrix_XY_p, weight_matrix_XY_p
 
-    def get_dht_models(self):
-        data_path_X = os.path.join(data_folder, self.lit_config["data"]["data_file_X"])
+    @cached_property
+    def dht_models(self):
+        data_path_X = os.path.join(
+            data_folder, self.config[self.__class__.__name__]["data"]["data_file_X"]
+        )
         data_X = torch.load(data_path_X)
 
-        data_path_Y = os.path.join(data_folder, self.lit_config["data"]["data_file_Y"])
+        data_path_Y = os.path.join(
+            data_folder, self.config[self.__class__.__name__]["data"]["data_file_Y"]
+        )
         data_Y = torch.load(data_path_Y)
 
         dht_model_X = get_dht_model(data_X["dht_params"], data_X["joint_limits"])
@@ -105,24 +98,35 @@ class LitStateMapper(LitModel):
 
         return dht_model_X, dht_model_Y
 
-    def get_kinematic_chain_loss(self):
-        data_path_A = os.path.join(data_folder, self.lit_config["data"]["data_file_X"])
+    @cached_property
+    def discriminator(self):
+        return deepcopy(Discriminator(self.config).model)
+
+    @cached_property
+    def loss_function(self):
+        data_path_A = os.path.join(
+            data_folder, self.config[self.__class__.__name__]["data"]["data_file_X"]
+        )
         data_A = torch.load(data_path_A)
 
-        data_path_B = os.path.join(data_folder, self.lit_config["data"]["data_file_Y"])
+        data_path_B = os.path.join(
+            data_folder, self.config[self.__class__.__name__]["data"]["data_file_Y"]
+        )
         data_B = torch.load(data_path_B)
 
-        link_positions_A = self.dht_model_A(
-            torch.zeros((1, data_A["trajectories_states_train"].shape[-1]))
-        )[0, :, :3, -1]
-        link_positions_B = self.dht_model_B(
-            torch.zeros((1, data_B["trajectories_states_train"].shape[-1]))
-        )[0, :, :3, -1]
+        dummy_state_A = torch.zeros((1, data_A["trajectories_states_train"].shape[-1]))
+        dummy_state_B = torch.zeros((1, data_B["trajectories_states_train"].shape[-1]))
+
+        self.dht_models[0].to(dummy_state_A)
+        self.dht_models[1].to(dummy_state_B)
+
+        link_positions_A = self.dht_models[0](dummy_state_A)[0, :, :3, -1]
+        link_positions_B = self.dht_models[1](dummy_state_B)[0, :, :3, -1]
 
         weight_matrix_AB_p, weight_matrix_AB_o = self.get_weight_matrices(
             link_positions_A,
             link_positions_B,
-            self.lit_config["model"]["weight_matrix_exponent_p"],
+            self.config[self.__class__.__name__]["model"]["weight_matrix_exponent_p"],
         )
         loss_fn_kinematics_AB = KinematicChainLoss(
             weight_matrix_AB_p, weight_matrix_AB_o, verbose_output=True
@@ -132,25 +136,26 @@ class LitStateMapper(LitModel):
 
     def configure_optimizers(self):
         optimizer_state_mapper = torch.optim.AdamW(
-            self.model.parameters(), lr=self.lit_config["train"].get("lr", 3e-4)
+            self.model.parameters(),
+            lr=self.config[self.__class__.__name__]["train"].get("lr", 3e-4),
         )
         return optimizer_state_mapper
 
     def train_dataloader(self):
         dataloader_train_A = self.get_dataloader(
-            self.lit_config["data"]["data_file_X"], "train"
+            self.config[self.__class__.__name__]["data"]["data_file_X"], "train"
         )
         dataloader_train_B = self.get_dataloader(
-            self.lit_config["data"]["data_file_Y"], "train"
+            self.config[self.__class__.__name__]["data"]["data_file_Y"], "train"
         )
         return CombinedLoader({"A": dataloader_train_A, "B": dataloader_train_B})
 
     def val_dataloader(self):
         dataloader_validation_A = self.get_dataloader(
-            self.lit_config["data"]["data_file_X"], "test", False
+            self.config[self.__class__.__name__]["data"]["data_file_X"], "test", False
         )
         dataloader_validation_B = self.get_dataloader(
-            self.lit_config["data"]["data_file_Y"], "test", False
+            self.config[self.__class__.__name__]["data"]["data_file_Y"], "test", False
         )
         return CombinedLoader(
             {"A": dataloader_validation_A, "B": dataloader_validation_B}
@@ -167,8 +172,13 @@ class LitStateMapper(LitModel):
 
         states_Y = self.model(states_X)
 
-        link_poses_X = self.dht_model_A(states_X)
-        link_poses_Y = self.dht_model_B(states_Y)
+        self.dht_models[0].to(states_X)
+        self.dht_models[1].to(states_Y)
+
+        link_poses_X = self.dht_models[0](states_X)
+        link_poses_Y = self.dht_models[1](states_Y)
+
+        self.loss_function.to(link_poses_X)
 
         (
             loss_state_mapper_XY,
@@ -176,9 +186,10 @@ class LitStateMapper(LitModel):
             loss_state_mapper_XY_o,
         ) = self.loss_function(link_poses_X, link_poses_Y)
         # discriminator loss
+        self.discriminator.to(states_Y)
         outputs = self.discriminator(states_Y)
-        dist = torch.sum((outputs - self.discriminator.model.c) ** 2, dim=1)
-        loss_disc = torch.mean(relu(dist - self.discriminator.model.radius))
+        dist = torch.sum((outputs - self.discriminator.c) ** 2, dim=1)
+        loss_disc = torch.mean(relu(dist - self.discriminator.radius))
 
         loss_state_mapper_XY_disc = loss_state_mapper_XY + loss_disc
 
@@ -197,25 +208,25 @@ class LitStateMapper(LitModel):
             loss_state_mapper_o,
         ) = self.loss(batch["A"])
         self.log(
-            "train_loss_LitStateMapper" + self.lit_config["log_suffix"],
+            f"train_loss_{self.log_id}",
             loss_state_mapper,
             on_step=False,
             on_epoch=True,
         )
         self.log(
-            "train_loss_LitStateMapper_disc" + self.lit_config["log_suffix"],
+            f"train_loss_{self.log_id}_disc",
             loss_state_mapper_disc,
             on_step=False,
             on_epoch=True,
         )
         self.log(
-            "train_loss_LitStateMapper_p" + self.lit_config["log_suffix"],
+            f"train_loss_{self.log_id}_p",
             loss_state_mapper_p,
             on_step=False,
             on_epoch=True,
         )
         self.log(
-            "train_loss_LitStateMapper_o" + self.lit_config["log_suffix"],
+            f"train_loss_{self.log_id}_o",
             loss_state_mapper_o,
             on_step=False,
             on_epoch=True,
@@ -230,25 +241,25 @@ class LitStateMapper(LitModel):
             loss_state_mapper_o,
         ) = self.loss(batch["A"])
         self.log(
-            "validation_loss_LitStateMapper" + self.lit_config["log_suffix"],
+            f"validation_loss_{self.log_id}",
             loss_state_mapper,
             on_step=False,
             on_epoch=True,
         )
         self.log(
-            "validation_loss_LitStateMapper_disc" + self.lit_config["log_suffix"],
+            f"validation_loss_{self.log_id}_disc",
             loss_state_mapper_disc,
             on_step=False,
             on_epoch=True,
         )
         self.log(
-            "validation_loss_LitStateMapper_p" + self.lit_config["log_suffix"],
+            f"validation_loss_{self.log_id}_p",
             loss_state_mapper_p,
             on_step=False,
             on_epoch=True,
         )
         self.log(
-            "validation_loss_LitStateMapper_o" + self.lit_config["log_suffix"],
+            "validation_loss_{self.log_id}_o",
             loss_state_mapper_o,
             on_step=False,
             on_epoch=True,
