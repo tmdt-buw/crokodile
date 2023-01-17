@@ -32,17 +32,23 @@ def get_weight_matrices(
         weight_matrix_XY_p: Weight matrix for orientations. All zeros except weight which corresponds to the end effectors.
     """
 
-    link_positions_X = torch.cat((torch.zeros(1, 3), link_positions_X))
+    link_positions_X = torch.cat(
+        (torch.zeros(1, 3).to(link_positions_X), link_positions_X)
+    )
+    link_positions_Y = torch.cat(
+        (torch.zeros(1, 3).to(link_positions_Y), link_positions_Y)
+    )
+
     link_lenghts_X = torch.norm(
         link_positions_X[1:] - link_positions_X[:-1], p=2, dim=-1
     )
-    link_order_X = link_lenghts_X.cumsum(0)
-    link_order_X = link_order_X / link_order_X[-1]
-
-    link_positions_Y = torch.cat((torch.zeros(1, 3), link_positions_Y))
     link_lenghts_Y = torch.norm(
         link_positions_Y[1:] - link_positions_Y[:-1], p=2, dim=-1
     )
+
+    link_order_X = link_lenghts_X.cumsum(0)
+    link_order_X = link_order_X / link_order_X[-1]
+
     link_order_Y = link_lenghts_Y.cumsum(0)
     link_order_Y = link_order_Y / link_order_Y[-1]
 

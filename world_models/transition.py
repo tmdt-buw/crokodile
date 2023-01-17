@@ -15,14 +15,14 @@ from utils.nn import create_network
 
 class TransitionModel(LitStage):
     def __init__(self, config):
-        # self.model = LitTransitionModel(config)
         super(TransitionModel, self).__init__(config)
 
     @cached_property
     def loss_function(self):
         return MSELoss()
 
-    def get_model(self):
+    @cached_property
+    def transition_model(self):
         data_path = os.path.join(data_folder, self.config[self.__class__.__name__]["data"])
         data = torch.load(data_path)
 
@@ -36,7 +36,7 @@ class TransitionModel(LitStage):
 
     def configure_optimizers(self):
         optimizer_model = torch.optim.AdamW(
-            self.model.parameters(),
+            self.transition_model.parameters(),
             lr=self.config[self.__class__.__name__]["train"].get("lr", 3e-4),
         )
         return optimizer_model
@@ -52,7 +52,8 @@ class TransitionModel(LitStage):
         actions = trajectories_actions.reshape(-1, trajectories_actions.shape[-1])
 
         states_actions = torch.concat(tensors=(states, actions), dim=-1)
-        next_states_predicted = self.model(states_actions)
+        self.transition_model.to(states_actions)
+        next_states_predicted = self.transition_model(states_actions)
         loss_transition_model = self.loss_function(next_states_predicted, next_states)
         return loss_transition_model
 

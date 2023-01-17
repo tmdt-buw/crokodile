@@ -1,52 +1,48 @@
+import os
+import sys
 from copy import deepcopy
+from itertools import chain
+from pathlib import Path
 
 import numpy as np
 import torch
+from pytorch_lightning.trainer.supporters import CombinedLoader
+from torch.nn import MSELoss
 
-from .mapper_state import StateMapper
+from mapper import Mapper
 from stage import LitStage
 from world_models.transition import TransitionModel
-from mapper import Mapper
+
+from .mapper_state import StateMapper
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+
+import math
+import os
+import sys
+from pathlib import Path
+
+import torch
+import torch.nn as nn
+from torch.nn import TransformerEncoder, TransformerEncoderLayer
+
+from config import data_folder
+from utils.nn import KinematicChainLoss, create_network, get_weight_matrices
+from utils.soft_dtw_cuda import SoftDTW
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+
+from functools import cached_property
+
+from models.dht import get_dht_model
+from utils.nn import NeuralNetwork
 
 
-class TrajectoryMapper(LitStage):
-    transition_model = None
-    state_mapper = None
-
-    def __init__(self, config):
-        self.model_cls = config["TrajectoryMapper"]["model_cls"]
-        self.model_config = config["TrajectoryMapper"]
-        super(TrajectoryMapper, self).__init__(config)
-
-    def generate(self):
-        super(TrajectoryMapper, self).generate()
-        # load transition model
-        self.transition_model = TransitionModel(self.config)
-        self.model.transition_model = deepcopy(self.transition_model.model)
-        del self.transition_model
-        # load state mapper
-        self.state_mapper = StateMapper(self.config)
-        self.model.state_mapper = deepcopy(self.state_mapper.model)
-        del self.state_mapper
-        super(TrajectoryMapper, self).train()
-
-    @classmethod
-    def get_relevant_config(cls, config):
-        return super(TrajectoryMapper, cls).get_relevant_config(config)
-
-
-class WeaSCLMapper(Mapper):
+class MapperWeaSCL(LitStage, Mapper):
     trajectory_mapper = None
 
     def __init__(self, config):
-        super(WeaSCLMapper, self).__init__(config)
-
-    def map_trajectories(self, trajectories):
-        for trajectory in trajectories:
-            yield self.map_trajectory(trajectory)
-
-    def generate(self):
-        self.trajectory_mapper = TrajectoryMapper(self.config)
+        super(MapperWeaSCL, self).__init__(config)
 
     def load(self):
         self.trajectory_mapper = TrajectoryMapper(self.config)
@@ -82,111 +78,141 @@ class WeaSCLMapper(Mapper):
             old_action["arm"] = new_action.cpu().detach().tolist()
 
         return trajectory
-import os
-import sys
-from pathlib import Path
-import torch
 
-from pytorch_lightning.trainer.supporters import CombinedLoader
-from lit_models.state_mapper import LitStateMapper
-from lit_models.transition_model import LitTransitionModel
-from lit_models.lit_model import LitModel
-from models.trajectory_encoder import TrajectoryEncoder
-from itertools import chain
-from torch.nn import MSELoss
+    @cached_property
+    def transition_model(self):
+        transition_model = deepcopy(TransitionModel(self.config).transition_model)
+        transition_model.to(self.device)
+        return transition_model
 
-sys.path.append(str(Path(__file__).resolve().parents[1]))
+    @cached_property
+    def state_mapper(self):
+        state_mapper = deepcopy(StateMapper(self.config).state_mapper)
+        state_mapper.to(self.device)
+        return state_mapper
 
-from utils.nn import create_network, KinematicChainLoss
-from utils.soft_dtw_cuda import SoftDTW
-
-from config import data_folder
-
-
-class LitTrajectoryMapper(LitModel):
-    def __init__(self, config):
-        super(LitTrajectoryMapper, self).__init__(config["TrajectoryMapper"])
-        self.trajectory_encoder, self.policy = self.model
-        self.transition_model = LitTransitionModel(config)
-        self.state_mapper = LitStateMapper(config)
-        self.loss_function = self.get_loss()
-
-    def get_model(self):
-        data_path_X = os.path.join(data_folder, self.lit_config["data"]["data_file_X"])
+    @cached_property
+    def trajectory_encoder(self):
+        # todo: derive from config["EnvSource"]
+        data_path_X = os.path.join(
+            data_folder, self.config[self.__class__.__name__]["data"]["data_file_X"]
+        )
         data_X = torch.load(data_path_X)
-
-        data_path_Y = os.path.join(data_folder, self.lit_config["data"]["data_file_Y"])
-        data_Y = torch.load(data_path_Y)
 
         trajectory_encoder = TrajectoryEncoder(
             state_dim=data_X["trajectories_states_train"].shape[-1],
             action_dim=data_X["trajectories_actions_train"].shape[-1],
-            behavior_dim=self.lit_config["model"]["behavior_dim"],
+            behavior_dim=self.config[self.__class__.__name__]["model"]["behavior_dim"],
             max_len=data_X["trajectories_states_train"].shape[-1]
             + data_X["trajectories_actions_train"].shape[-1],
-            **self.lit_config["model"]["encoder"],
+            **self.config[self.__class__.__name__]["model"]["encoder"],
         )
+
+        trajectory_encoder.to(self.device)
+
+        return trajectory_encoder
+
+    @cached_property
+    def policy(self):
+        # todo: derive from config["EnvTarget"]
+        data_path_Y = os.path.join(
+            data_folder, self.config[self.__class__.__name__]["data"]["data_file_Y"]
+        )
+        data_Y = torch.load(data_path_Y)
 
         policy = create_network(
             in_dim=data_Y["trajectories_states_train"].shape[-1]
-            + self.lit_config["model"]["behavior_dim"],
+            + self.config[self.__class__.__name__]["model"]["behavior_dim"],
             out_dim=data_Y["trajectories_actions_train"].shape[-1],
-            **self.lit_config["model"]["decoder"],
+            **self.config[self.__class__.__name__]["model"]["decoder"],
         )
 
-        return trajectory_encoder, policy
+        policy.to(self.device)
 
-    def get_loss(self):
-        data_path_X = os.path.join(data_folder, self.lit_config["data"]["data_file_X"])
+        return policy
+
+    @cached_property
+    def dht_models(self):
+        data_path_X = os.path.join(
+            data_folder, self.config[self.__class__.__name__]["data"]["data_file_X"]
+        )
         data_X = torch.load(data_path_X)
 
-        data_path_Y = os.path.join(data_folder, self.lit_config["data"]["data_file_Y"])
+        data_path_Y = os.path.join(
+            data_folder, self.config[self.__class__.__name__]["data"]["data_file_Y"]
+        )
         data_Y = torch.load(data_path_Y)
 
-        link_positions_A = self.state_mapper.dht_model_A(
-            torch.zeros((1, data_X["trajectories_states_train"].shape[-1]))
+        dht_model_X = get_dht_model(data_X["dht_params"], data_X["joint_limits"])
+        dht_model_Y = get_dht_model(data_Y["dht_params"], data_Y["joint_limits"])
+
+        dht_model_X.to(self.device)
+        dht_model_Y.to(self.device)
+
+        return dht_model_X, dht_model_Y
+
+    @cached_property
+    def loss_function(self):
+        data_path_X = os.path.join(
+            data_folder, self.config[self.__class__.__name__]["data"]["data_file_X"]
+        )
+        data_X = torch.load(data_path_X)
+
+        data_path_Y = os.path.join(
+            data_folder, self.config[self.__class__.__name__]["data"]["data_file_Y"]
+        )
+        data_Y = torch.load(data_path_Y)
+
+        link_positions_A = self.dht_models[0](
+            torch.zeros(
+                (1, data_X["trajectories_states_train"].shape[-1]), device=self.device
+            )
         )[0, :, :3, -1]
-        link_positions_B = self.state_mapper.dht_model_B(
-            torch.zeros((1, data_Y["trajectories_states_train"].shape[-1]))
+        link_positions_B = self.dht_models[1](
+            torch.zeros(
+                (1, data_Y["trajectories_states_train"].shape[-1]), device=self.device
+            )
         )[0, :, :3, -1]
 
-        weight_matrix_AB_p, weight_matrix_AB_o = self.state_mapper.get_weight_matrices(
+        weight_matrix_AB_p, weight_matrix_AB_o = get_weight_matrices(
             link_positions_A,
             link_positions_B,
-            self.lit_config["model"]["weight_matrix_exponent_p"],
+            self.config[self.__class__.__name__]["model"]["weight_matrix_exponent_p"],
         )
 
-        loss_soft_dtw_AB = SoftDTW(
+        loss_soft_dtw = SoftDTW(
             use_cuda=True,
             dist_func=KinematicChainLoss(
                 weight_matrix_AB_p, weight_matrix_AB_o, reduction=False
             ),
         )
 
-        return loss_soft_dtw_AB
+        loss_soft_dtw.to(self.device)
+
+        return loss_soft_dtw
 
     def configure_optimizers(self):
         optimizer_action_mapper = torch.optim.AdamW(
             chain(self.trajectory_encoder.parameters(), self.policy.parameters()),
-            lr=self.lit_config["train"].get("lr", 3e-4),
+            lr=self.config[self.__class__.__name__]["train"].get("lr", 3e-4),
         )
         return optimizer_action_mapper
 
     def train_dataloader(self):
         dataloader_train_A = self.get_dataloader(
-            self.lit_config["data"]["data_file_X"], "train"
+            self.config[self.__class__.__name__]["data"]["data_file_X"], "train"
         )
         dataloader_train_B = self.get_dataloader(
-            self.lit_config["data"]["data_file_Y"], "train"
+            self.config[self.__class__.__name__]["data"]["data_file_Y"], "train"
         )
         return CombinedLoader({"A": dataloader_train_A, "B": dataloader_train_B})
 
     def val_dataloader(self):
         dataloader_validation_A = self.get_dataloader(
-            self.lit_config["data"]["data_file_X"], "test", False
+            self.config[self.__class__.__name__]["data"]["data_file_X"], "test", False
         )
         dataloader_validation_B = self.get_dataloader(
-            self.lit_config["data"]["data_file_Y"], "test", False
+            self.config[self.__class__.__name__]["data"]["data_file_Y"], "test", False
         )
         return CombinedLoader(
             {"A": dataloader_validation_A, "B": dataloader_validation_B}
@@ -244,8 +270,8 @@ class LitTrajectoryMapper(LitModel):
         states_B = trajectories_states_B.reshape(-1, trajectories_states_B.shape[-1])
 
         # (b*l)p44
-        link_poses_A = self.state_mapper.dht_model_A(states_A)
-        link_poses_B = self.state_mapper.dht_model_B(states_B)
+        link_poses_A = self.dht_models[0](states_A)
+        link_poses_B = self.dht_models[1](states_B)
 
         # blp44
         link_poses_A = link_poses_A.reshape(
@@ -261,7 +287,7 @@ class LitTrajectoryMapper(LitModel):
     def training_step(self, batch, batch_idx):
         loss = self.loss(batch["A"])
         self.log(
-            "train_loss_LitTrajectoryMapper" + self.lit_config["log_suffix"],
+            f"train_loss_{self.log_id}",
             loss,
             on_step=False,
             on_epoch=True,
@@ -271,23 +297,12 @@ class LitTrajectoryMapper(LitModel):
     def validation_step(self, batch, batch_idx):
         loss = self.loss(batch["A"])
         self.log(
-            "validation_loss_LitTrajectoryMapper" + self.lit_config["log_suffix"],
+            f"validation_loss_{self.log_id}",
             loss,
             on_step=False,
             on_epoch=True,
         )
         return loss
-import torch
-import torch.nn as nn
-import os
-import sys
-from pathlib import Path
-import math
-from torch.nn import TransformerEncoderLayer, TransformerEncoder
-
-sys.path.append(str(Path(__file__).resolve().parents[1]))
-
-from utils.nn import NeuralNetwork
 
 
 class TrajectoryEncoder(nn.Module):
@@ -370,18 +385,3 @@ class PositionalEncoding(nn.Module):
 
     def forward(self, x):
         return self.dropout(x + self.pe[:, : x.size(1), :])
-
-
-states = torch.ones(2, 3, 3) * 2 - 1  # bld
-actions = torch.zeros(2, 2, 2) * 2 - 1  # bmd
-
-encoder = TrajectoryEncoder(
-    state_dim=states.shape[-1],
-    action_dim=actions.shape[-1],
-    behavior_dim=32,
-    max_len=states.shape[1] + actions.shape[1],
-    d_model=2,
-    nhead=2,
-)
-
-behavior = encoder(states, actions)

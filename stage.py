@@ -60,10 +60,10 @@ class Stage:
 
         logging.info(
             f"Stage {self.__class__.__name__}:"
-            f"hash: {self.hash}, "
-            f"tmpdir: {self.tmpdir}, "
-            f"load: {load}, "
-            f"save: {save}"
+            f"\n\thash: {self.hash}"
+            f"\n\ttmpdir: {self.tmpdir}"
+            f"\n\tload: {load}"
+            f"\n\tsave: {save}"
         )
 
         if load:
@@ -150,8 +150,6 @@ class LitStage(LightningModule, Stage):
             raise ValueError(f"Invalid path: {path}")
 
     def generate(self):
-        self.model = self.get_model()
-
         with wandb.init(
             config=self.get_relevant_config(self.config),
             **self.config.get("wandb_config", {"mode": "disabled"}),
@@ -178,6 +176,7 @@ class LitStage(LightningModule, Stage):
                 # fast_dev_run=False,
             )
             self.trainer.fit(self)
+            # todo: call wandb.finish()?
 
     def load(self, path=None):
         if path is None and self.config["cache"]["mode"] == "wandb":
@@ -205,6 +204,8 @@ class LitStage(LightningModule, Stage):
             self.load(checkpoint_path)
         elif os.path.exists(path):
             # self.model_config.update({"num_workers": 1, "num_gpus": 0})
+            # todo: must be custom for each model, as some stages (e.g. MapperWeaSCL) have multiple models
+            raise NotImplementedError()
             self.model = self.model_cls.load_from_checkpoint(
                 checkpoint_path=path,
                 map_location=torch.device("cpu"),
@@ -215,12 +216,7 @@ class LitStage(LightningModule, Stage):
 
     @classmethod
     def get_relevant_config(cls, config):
-        return {
-            "data": config[cls.__name__]["data"],
-            # "log_suffix": config[cls.__name__]["log_suffix"],
-            "model": config[cls.__name__]["model"],
-            "train": config[cls.__name__]["train"],
-        }
+        return config[cls.__name__]
 
     """LightningModule methods"""
 

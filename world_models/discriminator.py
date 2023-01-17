@@ -99,7 +99,8 @@ class Discriminator(LitStage):
     def __init__(self, config):
         super(Discriminator, self).__init__(config)
 
-    def get_model(self):
+    @cached_property
+    def discriminator(self):
         data_path = os.path.join(
             data_folder, self.config[self.__class__.__name__]["data"]
         )
@@ -107,22 +108,22 @@ class Discriminator(LitStage):
         self.config[self.__class__.__name__]["model"]["in_dim"] = data[
             "trajectories_states_train"
         ].shape[-1]
-        discriminator_model = DeepSVDD(self.config[self.__class__.__name__]["model"])
+        discriminator = DeepSVDD(self.config[self.__class__.__name__]["model"])
         # init center c with initial forward pass of some data
         data_c = data["trajectories_states_train"][:, :-1].reshape(
             -1, data["trajectories_states_train"].shape[-1]
         )[: self.config[self.__class__.__name__]["model"]["init_center_samples"], :]
-        discriminator_model.eval()
+        discriminator.eval()
         with torch.no_grad():
-            output = discriminator_model(data_c)
+            output = discriminator(data_c)
             c = torch.mean(output, dim=0)
         # If c_i is too close to 0, set to +-eps. Reason: a zero unit can be trivially matched with zero weights.
         eps = self.config[self.__class__.__name__]["model"]["eps"]
         c[(abs(c) < eps) & (c < 0)] = -eps
         c[(abs(c) < eps) & (c > 0)] = eps
-        discriminator_model.c.data = c
+        discriminator.c.data = c
 
-        return discriminator_model
+        return discriminator
 
     @cached_property
     def loss_function(self):
@@ -133,7 +134,7 @@ class Discriminator(LitStage):
 
     def configure_optimizers(self):
         optimizer_discriminator = torch.optim.AdamW(
-            self.model.parameters(),
+            self.discriminator.parameters(),
             lr=self.config[self.__class__.__name__]["train"].get("lr", 3e-4),
         )
         scheduler_disc = {
@@ -154,12 +155,13 @@ class Discriminator(LitStage):
     def loss(self, batch):
         trajectories_states, _ = batch
         states_x = trajectories_states.reshape(-1, trajectories_states.shape[-1])
-        outputs = self.model(states_x)
+        self.discriminator.to(states_x)
+        outputs = self.discriminator(states_x)
         loss, scores, radius = self.loss_function(
-            outputs, self.model, self.current_epoch
+            outputs, self.discriminator, self.current_epoch
         )
         if radius:
-            self.model.radius.data = radius
+            self.discriminator.radius.data = radius
         return loss
 
     

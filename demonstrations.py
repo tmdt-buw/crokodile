@@ -14,8 +14,6 @@ import wandb
 from environments.environment_robot_task import EnvironmentRobotTask
 from orchestrator import Orchestrator
 
-logging.getLogger().setLevel(logging.INFO)
-
 from mapper import Mapper
 from stage import Stage
 from trainer.expert import Expert

@@ -12,7 +12,7 @@ from models.dht import get_dht_model
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from utils.nn import create_network, KinematicChainLoss
+from utils.nn import create_network, KinematicChainLoss, get_weight_matrices
 from config import data_folder
 from stage import LitStage
 from functools import cached_property
@@ -29,7 +29,8 @@ class StateMapper(LitStage):
             **Discriminator.get_relevant_config(config),
         }
 
-    def get_model(self):
+    @cached_property
+    def state_mapper(self):
         data_path_X = os.path.join(
             data_folder, self.config[self.__class__.__name__]["data"]["data_file_X"]
         )
@@ -47,39 +48,6 @@ class StateMapper(LitStage):
         )
 
         return state_mapper_XY
-
-    @staticmethod
-    def get_weight_matrices(
-        link_positions_X, link_positions_Y, weight_matrix_exponent_p, norm=True
-    ):
-        link_positions_X = torch.cat((torch.zeros(1, 3), link_positions_X))
-        link_lenghts_X = torch.norm(
-            link_positions_X[1:] - link_positions_X[:-1], p=2, dim=-1
-        )
-        link_order_X = link_lenghts_X.cumsum(0)
-        link_order_X = link_order_X / link_order_X[-1]
-
-        link_positions_Y = torch.cat((torch.zeros(1, 3), link_positions_Y))
-        link_lenghts_Y = torch.norm(
-            link_positions_Y[1:] - link_positions_Y[:-1], p=2, dim=-1
-        )
-        link_order_Y = link_lenghts_Y.cumsum(0)
-        link_order_Y = link_order_Y / link_order_Y[-1]
-
-        weight_matrix_XY_p = torch.exp(
-            -weight_matrix_exponent_p
-            * torch.cdist(link_order_X.unsqueeze(-1), link_order_Y.unsqueeze(-1))
-        )
-        weight_matrix_XY_p = torch.nan_to_num(weight_matrix_XY_p, 1.0)
-
-        weight_matrix_XY_o = torch.zeros(len(link_positions_X), len(link_positions_Y))
-        weight_matrix_XY_o[-1, -1] = 1
-
-        if norm:
-            weight_matrix_XY_p /= weight_matrix_XY_p.sum()
-            weight_matrix_XY_o /= weight_matrix_XY_o.sum()
-
-        return weight_matrix_XY_p, weight_matrix_XY_p
 
     @cached_property
     def dht_models(self):
@@ -100,7 +68,7 @@ class StateMapper(LitStage):
 
     @cached_property
     def discriminator(self):
-        return deepcopy(Discriminator(self.config).model)
+        return deepcopy(Discriminator(self.config).discriminator)
 
     @cached_property
     def loss_function(self):
@@ -123,7 +91,7 @@ class StateMapper(LitStage):
         link_positions_A = self.dht_models[0](dummy_state_A)[0, :, :3, -1]
         link_positions_B = self.dht_models[1](dummy_state_B)[0, :, :3, -1]
 
-        weight_matrix_AB_p, weight_matrix_AB_o = self.get_weight_matrices(
+        weight_matrix_AB_p, weight_matrix_AB_o = get_weight_matrices(
             link_positions_A,
             link_positions_B,
             self.config[self.__class__.__name__]["model"]["weight_matrix_exponent_p"],
@@ -136,7 +104,7 @@ class StateMapper(LitStage):
 
     def configure_optimizers(self):
         optimizer_state_mapper = torch.optim.AdamW(
-            self.model.parameters(),
+            self.state_mapper.parameters(),
             lr=self.config[self.__class__.__name__]["train"].get("lr", 3e-4),
         )
         return optimizer_state_mapper
@@ -162,7 +130,7 @@ class StateMapper(LitStage):
         )
 
     def forward(self, states_A):
-        states_B = self.model(states_A)
+        states_B = self.state_mapper(states_A)
         return states_B
 
     def loss(self, batch):
@@ -170,7 +138,9 @@ class StateMapper(LitStage):
 
         states_X = trajectories_states_X.reshape(-1, trajectories_states_X.shape[-1])
 
-        states_Y = self.model(states_X)
+        self.state_mapper.to(states_X)
+
+        states_Y = self.state_mapper(states_X)
 
         self.dht_models[0].to(states_X)
         self.dht_models[1].to(states_Y)

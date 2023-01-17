@@ -7,9 +7,13 @@ import numpy as np
 
 from world_models.discriminator import Discriminator
 from world_models.transition import TransitionModel
+from mapper import Mapper
 
-data_file_A = "panda_5_20000_4000.pt"
-data_file_B = "ur5_5_20000_4000.pt"
+import logging
+logging.getLogger().setLevel(logging.INFO)
+
+data_file_A = "panda_5_10_10.pt"
+data_file_B = "ur5_5_10_10.pt"
 
 
 def transition_model_main():
@@ -68,9 +72,7 @@ def state_mapper_main():
 
     config = {
         "StateMapper": {
-            "model_cls": "state_mapper",
             "data": {"data_file_X": data_file_A, "data_file_Y": data_file_B},
-            "log_suffix": "_AB",
             "model": {
                 "network_width": 1024,
                 "network_depth": 4,
@@ -110,20 +112,39 @@ def state_mapper_main():
 
 
 def trajectory_mapper_main():
-    config_AB = {
-        "wandb_config": {
-            "project": "robot2robot",
-            "entity": "robot2robot",
+    config_task = {
+        "name": "reach",
+        "max_steps": 25,
+        "accuracy": 0.03,
+    }
+
+    config = {
+        "EnvSource": {
+            "env": "robot_task",
+            "env_config": {
+                "robot_config": {
+                    "name": "panda",
+                    "sim_time": 0.1,
+                    "scale": 0.1,
+                },
+                "task_config": config_task,
+                "disable_env_checking": True,
+            },
         },
-        "cache": {
-            "mode": "wandb",
-            "load": {"StateMapper": "913e59", "TransitionModel": "f8c6ad"},
-            "save": True,
+        "EnvTarget": {
+            "env": "robot_task",
+            "env_config": {
+                "robot_config": {
+                    "name": "ur5",
+                    "sim_time": 0.1,
+                    "scale": 1.0,
+                },
+                "task_config": config_task,
+                "disable_env_checking": True,
+            },
         },
         "StateMapper": {
-            "model_cls": "state_mapper",
             "data": {"data_file_X": data_file_A, "data_file_Y": data_file_B},
-            "log_suffix": "_AB",
             "model": {
                 "network_width": 1024,
                 "network_depth": 4,
@@ -132,15 +153,13 @@ def trajectory_mapper_main():
                 "weight_matrix_exponent_p": np.inf,
             },
             "train": {
-                "max_epochs": 50,
+                "max_epochs": 1,
                 "batch_size": 512,
                 "lr": 1e-3,
             },
         },
         "Discriminator": {
-            "model_cls": "discriminator",
             "data": data_file_B,
-            "log_suffix": "_A",
             "model": {
                 "objective": "soft-boundary",
                 "eps": 0.01,
@@ -153,7 +172,7 @@ def trajectory_mapper_main():
                 "warmup_epochs": 10,
             },
             "train": {
-                "max_epochs": 50,
+                "max_epochs": 1,
                 "batch_size": 512,
                 "lr": 1e-3,
                 "scheduler_epoch": 150,
@@ -161,9 +180,7 @@ def trajectory_mapper_main():
             },
         },
         "TransitionModel": {
-            "model_cls": "transition_model",
             "data": data_file_B,
-            "log_suffix": "_B",
             "model": {
                 "network_width": 256,
                 "network_depth": 4,
@@ -171,15 +188,14 @@ def trajectory_mapper_main():
                 "out_activation": "tanh",
             },
             "train": {
-                "max_epochs": 50,
+                "max_epochs": 1,
                 "batch_size": 2048,
                 "lr": 1e-3,
             },
         },
-        "TrajectoryMapper": {
-            "model_cls": "trajectory_mapper",
+        "Mapper": {
+            "type": "weascl",
             "data": {"data_file_X": data_file_A, "data_file_Y": data_file_B},
-            # "log_suffix": "_AB",
             "model": {
                 "weight_matrix_exponent_p": np.inf,
                 "behavior_dim": 64,
@@ -199,17 +215,17 @@ def trajectory_mapper_main():
                 },
             },
             "train": {
-                "max_epochs": 50,
+                "max_epochs": 1,
                 "batch_size": 512,
                 "lr": 1e-3,
             },
         },
     }
-    model = TrajectoryMapper(config_AB)
+    model = Mapper(config)
 
 
 if __name__ == "__main__":
     # transition_model_main()
     # discriminator_main()
-    state_mapper_main()
-    # trajectory_mapper_main()
+    # state_mapper_main()
+    trajectory_mapper_main()
