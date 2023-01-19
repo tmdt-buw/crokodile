@@ -103,7 +103,7 @@ class Trainer(Stage):
 
         with wandb.init(
                 config=self.get_relevant_config(self.config),
-                **self.config["wandb_config"],
+                **self.config.get("wandb_config", {"mode": "disabled"}),
                 group=self.__class__.__name__,
                 tags=[self.hash],
         ) as run:
