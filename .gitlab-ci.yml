@@ -1,6 +1,6 @@
 stages:
-  - linting
   - testing
+  - linting
 
 isort:
   stage: linting
