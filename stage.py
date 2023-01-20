@@ -22,7 +22,7 @@ from config import data_folder
 
 
 class Stage:
-    def __init__(self, config):
+    def __init__(self, config, run=True):
         self.config = config
         self.hash = self.get_config_hash(config)
         self.tmpdir = tempfile.mkdtemp()
@@ -58,36 +58,37 @@ class Stage:
                 type(load) is bool and type(save) is bool
             ), f"Invalid cache config: {config['cache']}"
 
-        logging.info(
-            f"Stage {self.__class__.__name__}:"
-            f"\n\thash: {self.hash}"
-            f"\n\ttmpdir: {self.tmpdir}"
-            f"\n\tload: {load}"
-            f"\n\tsave: {save}"
-        )
+        if run:
+            logging.info(
+                f"Stage {self.__class__.__name__}:"
+                f"\n\thash: {self.hash}"
+                f"\n\ttmpdir: {self.tmpdir}"
+                f"\n\tload: {load}"
+                f"\n\tsave: {save}"
+            )
 
-        if load:
-            try:
-                logging.info(f"Loading cache for {self.__class__.__name__}.")
+            if load:
+                try:
+                    logging.info(f"Loading cache for {self.__class__.__name__}.")
 
-                self.load()
-                # Don't save again if we loaded
-                save = False
-            except Exception as e:
-                logging.warning(
-                    f"Loading cache not possible " f"for {self.__class__.__name__}. "
-                )
-                logging.exception(e)
+                    self.load()
+                    # Don't save again if we loaded
+                    save = False
+                except Exception as e:
+                    logging.warning(
+                        f"Loading cache not possible " f"for {self.__class__.__name__}. "
+                    )
+                    logging.exception(e)
+                    self.generate()
+            else:
+                logging.info(f"Generating {self.__class__.__name__}.")
+
                 self.generate()
-        else:
-            logging.info(f"Generating {self.__class__.__name__}.")
 
-            self.generate()
+            if save:
+                logging.info(f"Saving {self.__class__.__name__}.")
 
-        if save:
-            logging.info(f"Saving {self.__class__.__name__}.")
-
-            self.save()
+                self.save()
 
     def __del__(self):
         try:
@@ -128,9 +129,9 @@ class Stage:
 
 
 class LitStage(LightningModule, Stage):
-    def __init__(self, config):
+    def __init__(self, config, load_checkpoint=False):
         LightningModule.__init__(self)
-        Stage.__init__(self, config)
+        Stage.__init__(self, config, run=not load_checkpoint)
 
     """Stage methods"""
 
@@ -145,7 +146,8 @@ class LitStage(LightningModule, Stage):
                 artifact.add_dir(self.tmpdir)
                 run.log_artifact(artifact)
         elif os.path.exists(path):
-            logging.info("Pytorch Lightning models are saved while training.")
+            state_dict = self.get_state_dict()
+            torch.save(state_dict, os.path.join(path, f"state_dict_{self.hash}.pt"))
         else:
             raise ValueError(f"Invalid path: {path}")
 
@@ -155,28 +157,26 @@ class LitStage(LightningModule, Stage):
             **self.config.get("wandb_config", {"mode": "disabled"}),
             group=self.__class__.__name__,
             tags=[self.hash],
-        ) as run:
+        ) as run, tempfile.TemporaryDirectory() as tmpdir:
             self.run_id = run.id
-            wandb_logger = WandbLogger(save_dir=self.tmpdir)
-            callbacks = [
-                # todo: adjust wandb tag to be based on env config once static data files are removed
-                ModelCheckpoint(
-                    monitor=f"validation_loss_{self.log_id}",
-                    mode="min",
-                    filename=f"checkpoint_{self.hash}",
-                )
-            ]
+            wandb_logger = WandbLogger(log_model=False, save_dir=tmpdir)
+            checkpoint_callback = ModelCheckpoint(
+                monitor=f"validation_loss_{self.log_id}",
+                mode="min",
+                filename=f"checkpoint_{self.hash}",
+            )
 
-            self.trainer = pl.Trainer(
+            trainer = pl.Trainer(
                 accelerator="gpu" if torch.cuda.is_available() else "cpu",
                 max_time="00:07:55:00",
                 max_epochs=self.config[self.__class__.__name__]["train"]["max_epochs"],
                 logger=wandb_logger,
-                callbacks=callbacks,
-                # fast_dev_run=False,
+                callbacks=[checkpoint_callback],
             )
-            self.trainer.fit(self)
-            # todo: call wandb.finish()?
+            trainer.fit(self)
+
+            self.load_from_checkpoint(checkpoint_callback.best_model_path, config=self.config, load_checkpoint=True)
+
 
     def load(self, path=None):
         if path is None and self.config["cache"]["mode"] == "wandb":
@@ -190,29 +190,22 @@ class LitStage(LightningModule, Stage):
 
             wandb.Api().artifact(wandb_checkpoint_path).download(self.tmpdir)
 
-            checkpoint_folders = glob.glob(self.tmpdir + "**/**/*.ckpt", recursive=True)
+            checkpoint_path = os.path.join(self.tmpdir, f"state_dict_{self.hash}.pt")
 
-            assert checkpoint_folders, f"No checkpoints found in {self.tmpdir}"
-
-            if len(checkpoint_folders) > 1:
-                logging.warning(
-                    f"More than one checkpoint folder found: " f"{checkpoint_folders}"
-                )
-
-            checkpoint_path = checkpoint_folders[0]
+            assert os.path.isfile(checkpoint_path), f"Checkpoint file not found {checkpoint_path}"
 
             self.load(checkpoint_path)
         elif os.path.exists(path):
-            # self.model_config.update({"num_workers": 1, "num_gpus": 0})
-            # todo: must be custom for each model, as some stages (e.g. MapperWeaSCL) have multiple models
-            raise NotImplementedError()
-            self.model = self.model_cls.load_from_checkpoint(
-                checkpoint_path=path,
-                map_location=torch.device("cpu"),
-                config=self.config,
-            )
+            state_dict = torch.load(path)
+            self.set_state_dict(state_dict)
         else:
             raise ValueError(f"Invalid path: {path}")
+
+    def get_state_dict(self):
+        raise NotImplementedError()
+
+    def set_state_dict(self, state_dict):
+        raise NotImplementedError()
 
     @classmethod
     def get_relevant_config(cls, config):
