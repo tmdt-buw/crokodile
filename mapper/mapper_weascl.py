@@ -36,17 +36,15 @@ from functools import cached_property
 
 from models.dht import get_dht_model
 from utils.nn import NeuralNetwork
+import wandb
+import logging
 
 
 class MapperWeaSCL(LitStage, Mapper):
     trajectory_mapper = None
 
-    def __init__(self, config):
-        super(MapperWeaSCL, self).__init__(config)
-
-    def load(self):
-        self.trajectory_mapper = TrajectoryMapper(self.config)
-        self.trajectory_mapper.load()
+    def __init__(self, config, **kwargs):
+        super(MapperWeaSCL, self).__init__(config, **kwargs)
 
     def map_trajectory(self, trajectory):
         joint_positions_source = np.stack(
@@ -130,6 +128,17 @@ class MapperWeaSCL(LitStage, Mapper):
         policy.to(self.device)
 
         return policy
+
+    def get_state_dict(self):
+        state_dict = {
+            "trajectory_encoder": self.trajectory_encoder.state_dict(),
+            "policy": self.policy.state_dict(),
+        }
+        return state_dict
+
+    def set_state_dict(self, state_dict):
+        self.trajectory_encoder.load_state_dict(state_dict["trajectory_encoder"])
+        self.policy.load_state_dict(state_dict["policy"])
 
     @cached_property
     def dht_models(self):
@@ -321,7 +330,7 @@ class TrajectoryEncoder(nn.Module):
         num_layers=6,
         dim_feedforward=2048,
         dropout=0.1,
-        **kwargs
+        **kwargs,
     ):
         super(TrajectoryEncoder, self).__init__()
 

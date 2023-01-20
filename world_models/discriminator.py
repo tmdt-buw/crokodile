@@ -96,8 +96,8 @@ class DeepSVDDLoss(torch.nn.Module):
 
 
 class Discriminator(LitStage):
-    def __init__(self, config):
-        super(Discriminator, self).__init__(config)
+    def __init__(self, config, **kwargs):
+        super(Discriminator, self).__init__(config, **kwargs)
 
     @cached_property
     def discriminator(self):
@@ -124,6 +124,12 @@ class Discriminator(LitStage):
         discriminator.c.data = c
 
         return discriminator
+
+    def get_state_dict(self):
+        return self.discriminator.state_dict()
+
+    def set_state_dict(self, state_dict):
+        self.discriminator.load_state_dict(state_dict)
 
     @cached_property
     def loss_function(self):

@@ -19,8 +19,8 @@ from functools import cached_property
 
 
 class StateMapper(LitStage):
-    def __init__(self, config):
-        super(StateMapper, self).__init__(config)
+    def __init__(self, config, **kwargs):
+        super(StateMapper, self).__init__(config, **kwargs)
 
     @classmethod
     def get_relevant_config(cls, config):
@@ -48,6 +48,12 @@ class StateMapper(LitStage):
         )
 
         return state_mapper_XY
+
+    def get_state_dict(self):
+        return self.state_mapper.state_dict()
+
+    def set_state_dict(self, state_dict):
+        self.state_mapper.load_state_dict(state_dict)
 
     @cached_property
     def dht_models(self):

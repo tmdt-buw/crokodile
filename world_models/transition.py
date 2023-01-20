@@ -14,8 +14,8 @@ from utils.nn import create_network
 
 
 class TransitionModel(LitStage):
-    def __init__(self, config):
-        super(TransitionModel, self).__init__(config)
+    def __init__(self, config, **kwargs):
+        super(TransitionModel, self).__init__(config, **kwargs)
 
     @cached_property
     def loss_function(self):
@@ -33,6 +33,12 @@ class TransitionModel(LitStage):
             **self.config[self.__class__.__name__]["model"],
         )
         return transition_model
+
+    def get_state_dict(self):
+        return self.transition_model.state_dict()
+
+    def set_state_dict(self, state_dict):
+        self.transition_model.load_state_dict(state_dict)
 
     def configure_optimizers(self):
         optimizer_model = torch.optim.AdamW(
