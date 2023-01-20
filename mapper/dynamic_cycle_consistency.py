@@ -10,8 +10,10 @@ class StateCycleConsistency(LitStage):
         super(StateCycleConsistency, self).__init__(config)
         self.state_mapper_AB = StateMapper(config)
         self.state_mapper_BA = StateMapper(config)
+
     def get_model(self):
         logging.info(f"Models in {self.__class__.__name__} are loaded by config.")
+
     def configure_optimizers(self):
         optimizer_state_mapper_AB = torch.optim.AdamW(
             self.state_mapper_AB.parameters(),
@@ -22,6 +24,7 @@ class StateCycleConsistency(LitStage):
             lr=self.config[self.__class__.__name__]["train"].get("lr", 3e-4),
         )
         return optimizer_state_mapper_AB, optimizer_state_mapper_BA
+
     def train_dataloader(self):
         dataloader_train_A = self.get_dataloader(
             self.config[self.__class__.__name__]["data"]["data_file_X"], "train"
@@ -30,6 +33,7 @@ class StateCycleConsistency(LitStage):
             self.config[self.__class__.__name__]["data"]["data_file_Y"], "train"
         )
         return CombinedLoader({"A": dataloader_train_A, "B": dataloader_train_B})
+
     def val_dataloader(self):
         dataloader_validation_A = self.get_dataloader(
             self.config[self.__class__.__name__]["data"]["data_file_X"], "test", False
@@ -38,9 +42,12 @@ class StateCycleConsistency(LitStage):
             self.config[self.__class__.__name__]["data"]["data_file_Y"], "test", False
         )
         return CombinedLoader(
-            {"A": dataloader_validation_A, "B": dataloader_validation_B})
+            {"A": dataloader_validation_A, "B": dataloader_validation_B}
+        )
+
     def forward(self, x):
         logging.info(f"Forward pass is not implemented for {self.__class__.__name__}.")
+
     def loss(self, batch):
         batch_A = batch["A"]
         trajectories_states_X, _ = batch_A
@@ -84,12 +91,9 @@ class StateCycleConsistency(LitStage):
         cycle_loss_o = loss_state_mapper_XYX_o + loss_state_mapper_YXY_o
 
         return cycle_loss, cycle_loss_p, cycle_loss_o
+
     def training_step(self, batch, batch_idx):
-        (
-            cycle_loss,
-            cycle_loss_p,
-            cycle_loss_o
-        ) = self.loss(batch)
+        (cycle_loss, cycle_loss_p, cycle_loss_o) = self.loss(batch)
         self.log(
             f"train_loss_{self.log_id}",
             cycle_loss,
@@ -109,12 +113,9 @@ class StateCycleConsistency(LitStage):
             on_epoch=True,
         )
         return cycle_loss
+
     def validation_step(self, batch, batch_idx):
-        (
-            cycle_loss,
-            cycle_loss_p,
-            cycle_loss_o
-        ) = self.loss(batch)
+        (cycle_loss, cycle_loss_p, cycle_loss_o) = self.loss(batch)
         self.log(
             f"validation_loss_{self.log_id}",
             cycle_loss,
