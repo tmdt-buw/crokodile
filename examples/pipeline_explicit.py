@@ -59,10 +59,12 @@ if __name__ == "__main__":
                 "success_threshold": 0.9,
             },
         },
-        "DemonstrationsSource": {
+        "EnvironmentSampler": {
             "num_demonstrations": 100,
             "max_trials": 100,
             "discard_unsuccessful": False,
+            "environment": "EnvSource",
+            "expert": "Random"
         },
         "Mapper": {
             "type": "explicit",
