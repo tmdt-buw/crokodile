@@ -1,4 +1,4 @@
-import os
+import math
 import sys
 from copy import deepcopy
 from itertools import chain
@@ -6,38 +6,23 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn as nn
 from pytorch_lightning.trainer.supporters import CombinedLoader
-from torch.nn import MSELoss
+from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
 from mapper import Mapper
 from stage import LitStage
+from utils.nn import KinematicChainLoss, create_network, get_weight_matrices
+from utils.soft_dtw_cuda import SoftDTW
 from world_models.transition import TransitionModel
 
 from .mapper_state import StateMapper
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-import math
-import os
-import sys
-from pathlib import Path
-
-import torch
-import torch.nn as nn
-from torch.nn import TransformerEncoder, TransformerEncoderLayer
-
-from config import data_folder
-from utils.nn import KinematicChainLoss, create_network, get_weight_matrices
-from utils.soft_dtw_cuda import SoftDTW
-
-sys.path.append(str(Path(__file__).resolve().parents[1]))
-
 from functools import cached_property
 
-from models.dht import get_dht_model
-from utils.nn import NeuralNetwork
-import wandb
-import logging
+from environments.environment_robot_task import EnvironmentRobotTask
 
 
 class MapperWeaSCL(LitStage, Mapper):
@@ -91,18 +76,13 @@ class MapperWeaSCL(LitStage, Mapper):
 
     @cached_property
     def trajectory_encoder(self):
-        # todo: derive from config["EnvSource"]
-        data_path_X = os.path.join(
-            data_folder, self.config[self.__class__.__name__]["data"]["data_file_X"]
-        )
-        data_X = torch.load(data_path_X)
+        env = EnvironmentRobotTask(self.config["EnvSource"]["env_config"])
 
         trajectory_encoder = TrajectoryEncoder(
-            state_dim=data_X["trajectories_states_train"].shape[-1],
-            action_dim=data_X["trajectories_actions_train"].shape[-1],
+            state_dim=env.state_space["robot"]["arm"]["joint_positions"].shape[-1],
+            action_dim=env.action_space["arm"].shape[-1],
             behavior_dim=self.config[self.__class__.__name__]["model"]["behavior_dim"],
-            max_len=data_X["trajectories_states_train"].shape[-1]
-            + data_X["trajectories_actions_train"].shape[-1],
+            max_len=env.task.max_steps * 2 + 1,
             **self.config[self.__class__.__name__]["model"]["encoder"],
         )
 
@@ -112,16 +92,13 @@ class MapperWeaSCL(LitStage, Mapper):
 
     @cached_property
     def policy(self):
-        # todo: derive from config["EnvTarget"]
-        data_path_Y = os.path.join(
-            data_folder, self.config[self.__class__.__name__]["data"]["data_file_Y"]
-        )
-        data_Y = torch.load(data_path_Y)
+        env = EnvironmentRobotTask(self.config["EnvTarget"]["env_config"])
 
+        # todo: make policy own module
         policy = create_network(
-            in_dim=data_Y["trajectories_states_train"].shape[-1]
-            + self.config[self.__class__.__name__]["model"]["behavior_dim"],
-            out_dim=data_Y["trajectories_actions_train"].shape[-1],
+            in_dim=self.config[self.__class__.__name__]["model"]["behavior_dim"]
+            + env.state_space["robot"]["arm"]["joint_positions"].shape[-1],
+            out_dim=env.action_space["arm"].shape[-1],
             **self.config[self.__class__.__name__]["model"]["decoder"],
         )
 
@@ -141,58 +118,45 @@ class MapperWeaSCL(LitStage, Mapper):
         self.policy.load_state_dict(state_dict["policy"])
 
     @cached_property
-    def dht_models(self):
-        data_path_X = os.path.join(
-            data_folder, self.config[self.__class__.__name__]["data"]["data_file_X"]
-        )
-        data_X = torch.load(data_path_X)
+    def dht_model_source(self):
+        env_source = EnvironmentRobotTask(self.config["EnvSource"]["env_config"])
+        dht_model_source = deepcopy(env_source.robot.dht_model)
+        dht_model_source.to(self.device)
+        return dht_model_source
 
-        data_path_Y = os.path.join(
-            data_folder, self.config[self.__class__.__name__]["data"]["data_file_Y"]
-        )
-        data_Y = torch.load(data_path_Y)
-
-        dht_model_X = get_dht_model(data_X["dht_params"], data_X["joint_limits"])
-        dht_model_Y = get_dht_model(data_Y["dht_params"], data_Y["joint_limits"])
-
-        dht_model_X.to(self.device)
-        dht_model_Y.to(self.device)
-
-        return dht_model_X, dht_model_Y
+    @cached_property
+    def dht_model_target(self):
+        env_target = EnvironmentRobotTask(self.config["EnvTarget"]["env_config"])
+        dht_model_target = deepcopy(env_target.robot.dht_model)
+        dht_model_target.to(self.device)
+        return dht_model_target
 
     @cached_property
     def loss_function(self):
-        data_path_X = os.path.join(
-            data_folder, self.config[self.__class__.__name__]["data"]["data_file_X"]
-        )
-        data_X = torch.load(data_path_X)
+        env_source = EnvironmentRobotTask(self.config["EnvSource"]["env_config"])
+        env_target = EnvironmentRobotTask(self.config["EnvTarget"]["env_config"])
 
-        data_path_Y = os.path.join(
-            data_folder, self.config[self.__class__.__name__]["data"]["data_file_Y"]
-        )
-        data_Y = torch.load(data_path_Y)
-
-        link_positions_A = self.dht_models[0](
+        link_positions_source = self.dht_model_source(
             torch.zeros(
-                (1, data_X["trajectories_states_train"].shape[-1]), device=self.device
-            )
+                (1,) + env_source.state_space["robot"]["arm"]["joint_positions"].shape
+            ).to(self.device)
         )[0, :, :3, -1]
-        link_positions_B = self.dht_models[1](
+        link_positions_target = self.dht_model_target(
             torch.zeros(
-                (1, data_Y["trajectories_states_train"].shape[-1]), device=self.device
-            )
+                (1,) + env_target.state_space["robot"]["arm"]["joint_positions"].shape
+            ).to(self.device)
         )[0, :, :3, -1]
 
-        weight_matrix_AB_p, weight_matrix_AB_o = get_weight_matrices(
-            link_positions_A,
-            link_positions_B,
+        weight_matrix_ST_p, weight_matrix_ST_o = get_weight_matrices(
+            link_positions_source,
+            link_positions_target,
             self.config[self.__class__.__name__]["model"]["weight_matrix_exponent_p"],
         )
 
         loss_soft_dtw = SoftDTW(
             use_cuda=True,
             dist_func=KinematicChainLoss(
-                weight_matrix_AB_p, weight_matrix_AB_o, reduction=False
+                weight_matrix_ST_p, weight_matrix_ST_o, reduction=False
             ),
         )
 
@@ -208,93 +172,109 @@ class MapperWeaSCL(LitStage, Mapper):
         return optimizer_action_mapper
 
     def train_dataloader(self):
-        dataloader_train_A = self.get_dataloader(
+        # todo: replace data file with data stage
+        dataloader_train_source = self.get_dataloader(
             self.config[self.__class__.__name__]["data"]["data_file_X"], "train"
         )
-        dataloader_train_B = self.get_dataloader(
+        dataloader_train_target = self.get_dataloader(
             self.config[self.__class__.__name__]["data"]["data_file_Y"], "train"
         )
-        return CombinedLoader({"A": dataloader_train_A, "B": dataloader_train_B})
+        return CombinedLoader(
+            {"source": dataloader_train_source, "target": dataloader_train_target}
+        )
 
     def val_dataloader(self):
-        dataloader_validation_A = self.get_dataloader(
+        dataloader_validation_source = self.get_dataloader(
             self.config[self.__class__.__name__]["data"]["data_file_X"], "test", False
         )
-        dataloader_validation_B = self.get_dataloader(
+        dataloader_validation_target = self.get_dataloader(
             self.config[self.__class__.__name__]["data"]["data_file_Y"], "test", False
         )
         return CombinedLoader(
-            {"A": dataloader_validation_A, "B": dataloader_validation_B}
+            {
+                "source": dataloader_validation_source,
+                "target": dataloader_validation_target,
+            }
         )
 
     def forward(self, batch):
-        states_A, actions_A = batch
+        states_source, actions_source = batch
         with torch.no_grad():
             # bz
-            behaviors = self.trajectory_encoder(states_A, actions_A)
+            behaviors = self.trajectory_encoder(states_source, actions_source)
             # bs
-            states_B = self.state_mapper(states_A[:, 0])
+            states_target = self.state_mapper(states_source[:, 0])
 
-            for _ in range(states_A.shape[1]):
+            for _ in range(states_source.shape[1]):
                 # b(s+z)
-                states_B_behaviors = torch.concat((states_B, behaviors), dim=-1)
+                states_target_behaviors = torch.concat(
+                    (states_target, behaviors), dim=-1
+                )
                 # ba
-                actions_B = self.policy(states_B_behaviors)
+                actions_target = self.policy(states_target_behaviors)
 
-        return actions_B
+        return actions_target
 
     def loss(self, batch):
-        # bls, bla
-        trajectories_states_A, trajectories_actions_A = batch
+        # batch x len x s_dim_S, batch x len x a_dim_S
+        trajectories_states_source, trajectories_actions_source = batch
 
-        # bz
+        # batch x z_dim
         behaviors = self.trajectory_encoder(
-            trajectories_states_A, trajectories_actions_A
+            trajectories_states_source, trajectories_actions_source
         )
 
-        trajectories_states_B = []
+        trajectories_states_target = []
 
-        # bs
-        states_B = self.state_mapper(trajectories_states_A[:, 0])
-        trajectories_states_B.append(states_B)
+        # batch, s_dim_T
+        states_target = self.state_mapper(trajectories_states_source[:, 0])
+        trajectories_states_target.append(states_target)
 
-        for _ in range(trajectories_actions_A.shape[1]):
-            # b(s+z)
-            states_B_behaviors = torch.concat((states_B, behaviors), dim=-1)
+        for _ in range(trajectories_actions_source.shape[1]):
+            # batch x (s_dim_S + dim_z)
+            states_target_behaviors = torch.concat((states_target, behaviors), dim=-1)
 
-            # ba
-            actions_B = self.policy(states_B_behaviors)
-            # b(s+a)
-            states_actions_B = torch.concat((states_B, actions_B), dim=-1)
-            # bs
-            states_B = self.transition_model(states_actions_B)
+            # batch x a_dim_T
+            actions_target = self.policy(states_target_behaviors)
+            # batch x (s_dim_T + a_dim_T)
+            states_actions_target = torch.concat(
+                (states_target, actions_target), dim=-1
+            )
+            # batch x s_dim_T
+            states_target = self.transition_model(states_actions_target)
 
-            trajectories_states_B.append(states_B)
+            trajectories_states_target.append(states_target)
 
         # bls
-        trajectories_states_B = torch.stack(trajectories_states_B).swapdims(0, 1)
+        trajectories_states_target = torch.stack(trajectories_states_target).swapdims(
+            0, 1
+        )
 
         # (b*l)s
-        states_A = trajectories_states_A.reshape(-1, trajectories_states_A.shape[-1])
-        states_B = trajectories_states_B.reshape(-1, trajectories_states_B.shape[-1])
+        states_source = trajectories_states_source.reshape(
+            -1, trajectories_states_source.shape[-1]
+        )
+        states_target = trajectories_states_target.reshape(
+            -1, trajectories_states_target.shape[-1]
+        )
 
         # (b*l)p44
-        link_poses_A = self.dht_models[0](states_A)
-        link_poses_B = self.dht_models[1](states_B)
+        link_poses_source = self.dht_model_source(states_source)
+        link_poses_target = self.dht_model_target(states_target)
 
         # blp44
-        link_poses_A = link_poses_A.reshape(
-            *trajectories_states_A.shape[:2], *link_poses_A.shape[1:]
+        link_poses_source = link_poses_source.reshape(
+            *trajectories_states_source.shape[:2], *link_poses_source.shape[1:]
         )
-        link_poses_B = link_poses_B.reshape(
-            *trajectories_states_B.shape[:2], *link_poses_B.shape[1:]
+        link_poses_target = link_poses_target.reshape(
+            *trajectories_states_target.shape[:2], *link_poses_target.shape[1:]
         )
 
-        loss = self.loss_function(link_poses_A, link_poses_B).mean()
+        loss = self.loss_function(link_poses_source, link_poses_target).mean()
         return loss
 
     def training_step(self, batch, batch_idx):
-        loss = self.loss(batch["A"])
+        loss = self.loss(batch["source"])
         self.log(
             f"train_loss_{self.log_id}",
             loss,
@@ -304,7 +284,7 @@ class MapperWeaSCL(LitStage, Mapper):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        loss = self.loss(batch["A"])
+        loss = self.loss(batch["source"])
         self.log(
             f"validation_loss_{self.log_id}",
             loss,
@@ -350,27 +330,34 @@ class TrajectoryEncoder(nn.Module):
         )
         self.transformer_encoder = TransformerEncoder(encoder_layers, num_layers)
 
-        self.behavior_decoder = nn.Conv1d(d_model, behavior_dim, 1)
+        self.behavior_encoder = nn.Conv1d(d_model, behavior_dim, 1)
 
     def forward(self, states, actions):
+        # batch x dim x len
         states_ = self.encoder_state(states.swapdims(1, 2))
+        # batch x dim x len-1
         actions_ = self.encoder_action(actions.swapdims(1, 2))
+        # batch x dim x len
         actions_ = torch.nn.functional.pad(actions_, (0, 1), value=torch.nan)
 
+        # batch x dim x 2*len
         states_actions = torch.stack((states_, actions_), dim=-1).view(
-            *states_.shape[:2], -1
+            *states_.shape[:-1], -1
         )
+
+        # batch x dim x 2*len-1
         states_actions = states_actions[:, :, :-1]
 
-        # padding = self.max_len - states_actions.shape[-1]
-        # states_actions = torch.nn.functional.pad(actions_, (0, padding))
+        # batch x len x dim
         states_actions.swapdims_(1, 2)
 
-        out = self.transformer_encoder(states_actions)
+        states_actions_pe = self.positional_encoding(states_actions)
 
-        out.swapdims_(1, 2)
+        te = self.transformer_encoder(states_actions_pe)
 
-        behavior = self.behavior_decoder(out).mean(-1)
+        te.swapdims_(1, 2)
+
+        behavior = self.behavior_encoder(te).mean(-1)
 
         return behavior
 

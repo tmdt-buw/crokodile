@@ -22,7 +22,7 @@ from config import data_folder
 
 
 class Stage:
-    def __init__(self, config, run=True):
+    def __init__(self, config, run=True, **kwargs):
         self.config = config
         self.hash = self.get_config_hash(config)
         self.tmpdir = tempfile.mkdtemp()
@@ -129,7 +129,7 @@ class Stage:
 
 
 class LitStage(LightningModule, Stage):
-    def __init__(self, config, load_checkpoint=False):
+    def __init__(self, config, load_checkpoint=False, **kwargs):
         LightningModule.__init__(self)
         Stage.__init__(self, config, run=not load_checkpoint)
 
@@ -209,7 +209,9 @@ class LitStage(LightningModule, Stage):
 
     @classmethod
     def get_relevant_config(cls, config):
-        return config[cls.__name__]
+        return {
+            cls.__name__: config[cls.__name__],
+        }
 
     """LightningModule methods"""
 
@@ -224,6 +226,7 @@ class LitStage(LightningModule, Stage):
         )
 
     def get_dataloader(self, data_file, dataset_type="train", shuffle=True):
+        # todo: remove dependency on data file
         data_path = os.path.join(data_folder, data_file)
         data = torch.load(data_path)
 

@@ -1,4 +1,3 @@
-import os
 import sys
 from functools import cached_property
 from pathlib import Path
@@ -8,7 +7,7 @@ from torch.nn import MSELoss
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from config import data_folder
+from environments.environment_robot_task import EnvironmentRobotTask
 from stage import LitStage
 from utils.nn import create_network
 
@@ -23,13 +22,14 @@ class TransitionModel(LitStage):
 
     @cached_property
     def transition_model(self):
-        data_path = os.path.join(data_folder, self.config[self.__class__.__name__]["data"])
-        data = torch.load(data_path)
+        env = EnvironmentRobotTask(self.config["EnvTarget"]["env_config"])
+
+        dim_state = env.state_space["robot"]["arm"]["joint_positions"].shape[-1]
+        dim_action = env.action_space["arm"].shape[-1]
 
         transition_model = create_network(
-            in_dim=data["trajectories_states_train"].shape[-1]
-            + data["trajectories_actions_train"].shape[-1],
-            out_dim=data["trajectories_states_train"].shape[-1],
+            in_dim=dim_state + dim_action,
+            out_dim=dim_state,
             **self.config[self.__class__.__name__]["model"],
         )
         return transition_model
@@ -63,3 +63,10 @@ class TransitionModel(LitStage):
         loss_transition_model = self.loss_function(next_states_predicted, next_states)
         return loss_transition_model
 
+    @classmethod
+    def get_relevant_config(cls, config):
+        config_ = super().get_relevant_config(config)
+
+        config_["EnvTarget"] = config["EnvTarget"]
+
+        return config_
