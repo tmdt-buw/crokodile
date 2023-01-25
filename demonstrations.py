@@ -66,6 +66,15 @@ class Demonstrations(Stage):
         else:
             raise ValueError(f"Invalid path: {path}")
 
+class RandomPolicy:
+    def __init__(self, env_config):
+        env = EnvironmentRobotTask(env_config)
+        self.action_space = env.action_space
+
+    def compute_actions(self, observations):
+        return {
+            env_id: self.action_space.sample() for env_id in observations.keys()
+            }
 
 class EnvironmentSampler(Demonstrations):
     def __init__(self, config):
@@ -76,18 +85,20 @@ class EnvironmentSampler(Demonstrations):
 
         max_trials = config.get("max_trials", np.inf)
         num_demonstrations = config["num_demonstrations"]
-        environment = config.get("environment")
-        if environment is "EnvTarget":
-            self.config["EnvSource"], self.config["EnvTarget"] = (
-                self.config["EnvTarget"],
-                self.config["EnvSource"],
-            )
+        discard_unsuccessful = config.get("discard_unsuccessful", False)
 
-        discard_unsuccessful = config.get("discard_unsuccessful", True)
-        policy = config.get("policy", "Expert")
-        if policy is "Random":
-            self.config["Expert"]["train"]["max_epochs"] = 1
-            discard_unsuccessful = False
+        policy_type = config.get("policy", "Random")
+        env_config = self.config[config.get("env")]
+
+        if policy_type == "Random":
+            assert discard_unsuccessful == False, "discard_unsuccessful is not supported for Random policy"
+
+            policy = RandomPolicy(env_config["env_config"])
+        elif policy_type == "Expert":
+            self.config["Expert"]["model_config"].update(env_config)
+            policy = Expert(self.config).model
+        else:
+            raise ValueError(f"Invalid policy: {policy_type}")
 
         if max_trials < num_demonstrations:
             logging.warning(
@@ -97,14 +108,12 @@ class EnvironmentSampler(Demonstrations):
             )
             max_trials = num_demonstrations
 
-        expert = Expert(self.config).model
-
         trials_launched = 0
         trials_completed = 0
         self.trajectories = []
 
         with Orchestrator(
-            expert.workers.local_worker().env_context, cpu_count()
+            env_config["env_config"], config.get("num_workers", cpu_count())
         ) as orchestrator:
             success_criterion = orchestrator.success_criterion
 
@@ -176,7 +185,7 @@ class EnvironmentSampler(Demonstrations):
 
                 if required_predictions:
                     # Generate predictions
-                    for env_id, action in expert.compute_actions(
+                    for env_id, action in policy.compute_actions(
                         required_predictions
                     ).items():
                         requests.append((env_id, "step", action))
