@@ -155,7 +155,7 @@ class Trainer(Stage):
     def get_relevant_config(cls, config):
         return {
             cls.__name__: {
-                "model": config[cls.__name__]["model"],
+                "model_config": config[cls.__name__]["model_config"],
                 "train": config[cls.__name__]["train"],
             }
         }

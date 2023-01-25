@@ -1,4 +1,8 @@
-from copy import deepcopy
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+
 
 from environments.environment_robot_task import Callbacks
 from trainer.apprentice import Apprentice
@@ -46,7 +50,7 @@ if __name__ == "__main__":
         },
         "Expert": {
             "model_cls": "PPO",
-            "model": {
+            "model_config": {
                 "framework": "torch",
                 "callbacks": Callbacks,
                 "model": {
@@ -59,10 +63,12 @@ if __name__ == "__main__":
                 "success_threshold": 0.9,
             },
         },
-        "DemonstrationsSource": {
+        "EnvironmentSampler": {
             "num_demonstrations": 100,
             "max_trials": 100,
             "discard_unsuccessful": False,
+            "env": "EnvSource",
+            "policy": "Random",
         },
         "Mapper": {
             "type": "explicit",
@@ -71,7 +77,7 @@ if __name__ == "__main__":
         },
         "Pretrainer": {
             "model_cls": "MARWIL",
-            "model": {
+            "model_config": {
                 "framework": "torch",
                 "model": {
                     "vf_share_layers": False,
@@ -101,7 +107,7 @@ if __name__ == "__main__":
         },
         "Apprentice": {
             "model_cls": "PPO",
-            "model": {
+            "model_config": {
                 "framework": "torch",
                 "callbacks": Callbacks,
                 "model": {

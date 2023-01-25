@@ -28,15 +28,14 @@ class Demonstrations(Stage):
     def save(self, path=None):
         if path is None and self.config["cache"]["mode"] == "wandb":
             with wandb.init(
-                    config=self.get_relevant_config(self.config),
-                    **self.config["wandb_config"],
-                    group=self.__class__.__name__,
-                    tags=[self.hash],
+                config=self.get_relevant_config(self.config),
+                **self.config["wandb_config"],
+                group=self.__class__.__name__,
+                tags=[self.hash],
             ):
                 self.save(self.tmpdir)
 
-                artifact = wandb.Artifact(name=self.hash,
-                                          type=self.__class__.__name__)
+                artifact = wandb.Artifact(name=self.hash, type=self.__class__.__name__)
                 artifact.add_dir(self.tmpdir)
                 wandb.log_artifact(artifact)
         elif os.path.exists(path):
@@ -50,13 +49,14 @@ class Demonstrations(Stage):
     def load(self, path=None):
         if path is None and self.config["cache"]["mode"] == "wandb":
             wandb_config = self.config["wandb_config"]
-            wandb_checkpoint_path = f"{wandb_config['entity']}/" \
-                                    f"{wandb_config['project']}/" \
-                                    f"{self.hash}:latest"
+            wandb_checkpoint_path = (
+                f"{wandb_config['entity']}/"
+                f"{wandb_config['project']}/"
+                f"{self.hash}:latest"
+            )
 
             download_folder = (
-                wandb.Api().artifact(wandb_checkpoint_path).download(
-                    self.tmpdir)
+                wandb.Api().artifact(wandb_checkpoint_path).download(self.tmpdir)
             )
 
             self.load(download_folder)
@@ -66,17 +66,39 @@ class Demonstrations(Stage):
         else:
             raise ValueError(f"Invalid path: {path}")
 
+class RandomPolicy:
+    def __init__(self, env_config):
+        env = EnvironmentRobotTask(env_config)
+        self.action_space = env.action_space
 
-class DemonstrationsSource(Demonstrations):
+    def compute_actions(self, observations):
+        return {
+            env_id: self.action_space.sample() for env_id in observations.keys()
+            }
+
+class EnvironmentSampler(Demonstrations):
     def __init__(self, config):
-        super(DemonstrationsSource, self).__init__(config)
+        super(EnvironmentSampler, self).__init__(config)
 
     def generate(self):
-        config = self.config["DemonstrationsSource"]
+        config = self.config["EnvironmentSampler"]
 
         max_trials = config.get("max_trials", np.inf)
         num_demonstrations = config["num_demonstrations"]
-        discard_unsuccessful = config.get("discard_unsuccessful", True)
+        discard_unsuccessful = config.get("discard_unsuccessful", False)
+
+        policy_type = config.get("policy", "Random")
+        env_config = self.config[config.get("env")]
+
+        if policy_type == "Random":
+            assert discard_unsuccessful == False, "discard_unsuccessful is not supported for Random policy"
+
+            policy = RandomPolicy(env_config["env_config"])
+        elif policy_type == "Expert":
+            self.config["Expert"]["model_config"].update(env_config)
+            policy = Expert(self.config).model
+        else:
+            raise ValueError(f"Invalid policy: {policy_type}")
 
         if max_trials < num_demonstrations:
             logging.warning(
@@ -86,14 +108,12 @@ class DemonstrationsSource(Demonstrations):
             )
             max_trials = num_demonstrations
 
-        expert = Expert(self.config).model
-
         trials_launched = 0
         trials_completed = 0
         self.trajectories = []
 
         with Orchestrator(
-                expert.workers.local_worker().env_context, cpu_count()
+            env_config["env_config"], config.get("num_workers", cpu_count())
         ) as orchestrator:
             success_criterion = orchestrator.success_criterion
 
@@ -105,8 +125,10 @@ class DemonstrationsSource(Demonstrations):
 
             pbar = tqdm(total=num_demonstrations)
 
-            while len(self.trajectories) < num_demonstrations and \
-                    trials_completed < max_trials:
+            while (
+                len(self.trajectories) < num_demonstrations
+                and trials_completed < max_trials
+            ):
                 requests = []
                 required_predictions = {}
 
@@ -139,8 +161,7 @@ class DemonstrationsSource(Demonstrations):
                         success = success_criterion(state["goal"])
                         done |= success
 
-                        batch_builder[env_id].add_values(dones=done,
-                                                         rewards=reward)
+                        batch_builder[env_id].add_values(dones=done, rewards=reward)
 
                         if done:
                             if success or not discard_unsuccessful:
@@ -164,8 +185,8 @@ class DemonstrationsSource(Demonstrations):
 
                 if required_predictions:
                     # Generate predictions
-                    for env_id, action in expert.compute_actions(
-                            required_predictions
+                    for env_id, action in policy.compute_actions(
+                        required_predictions
                     ).items():
                         requests.append((env_id, "step", action))
 
@@ -194,19 +215,17 @@ class DemonstrationsTarget(Demonstrations):
     def generate(self):
         # config = self.config["demonstrations_target"]
 
-        demonstrations = DemonstrationsSource(self.config)
+        demonstrations = EnvironmentSampler(self.config)
         mapper = Mapper(self.config)
 
         env = EnvironmentRobotTask(self.config["EnvTarget"]["env_config"])
         preprocessor_obs = get_preprocessor(env.observation_space)(
             env.observation_space
         )
-        preprocessor_actions = get_preprocessor(env.action_space)(
-            env.action_space)
+        preprocessor_actions = get_preprocessor(env.action_space)(env.action_space)
         del env
 
-        mapped_trajectories = mapper.map_trajectories(
-            demonstrations.trajectories)
+        mapped_trajectories = mapper.map_trajectories(demonstrations.trajectories)
 
         self.trajectories = []
 
@@ -230,6 +249,6 @@ class DemonstrationsTarget(Demonstrations):
     @classmethod
     def get_relevant_config(cls, config):
         return {
-            **DemonstrationsSource.get_relevant_config(config),
+            **EnvironmentSampler.get_relevant_config(config),
             **Mapper.get_relevant_config(config),
         }
