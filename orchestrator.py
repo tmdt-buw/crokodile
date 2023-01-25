@@ -2,6 +2,7 @@ import multiprocessing as mp
 import random
 import threading
 from copy import deepcopy
+from functools import cached_property
 from multiprocessing import Lock
 
 from environments.environment_robot_task import EnvironmentRobotTask
@@ -12,12 +13,6 @@ class Orchestrator:
 
         self.pipes = {}
         self.locks = {}
-
-        self.state_space_ = None
-        self.goal_space_ = None
-        self.action_space_ = None
-        self.reward_function_ = None
-        self.success_criterion_ = None
 
         self.number_processes = number_processes
         self.number_threads = number_threads
@@ -188,55 +183,47 @@ class Orchestrator:
 
         return responses
 
-    @property
+    @cached_property
     def state_space(self):
-        if self.state_space_ is None:
-            self.pipes[0].send(["state space", None])
-            func, self.state_space_ = self.pipes[0].recv()
+        self.pipes[0].send(["state space", None])
+        func, state_space = self.pipes[0].recv()
 
-            assert func == "state space", f"'{func}' instead of 'state space'"
+        assert func == "state space", f"'{func}' instead of 'state space'"
 
-        return self.state_space_
+        return state_space
 
-    @property
+    @cached_property
     def goal_space(self):
-        if self.goal_space_ is None:
-            self.pipes[0].send(["goal space", None])
-            func, self.goal_space_ = self.pipes[0].recv()
+        self.pipes[0].send(["goal space", None])
+        func, goal_space = self.pipes[0].recv()
 
-            assert func == "goal space", f"'{func}' instead of 'goal space'"
+        assert func == "goal space", f"'{func}' instead of 'goal space'"
 
-        return self.goal_space_
+        return goal_space
 
-    @property
+    @cached_property
     def action_space(self):
+        self.pipes[0].send(["action space", None])
+        func, action_space = self.pipes[0].recv()
 
-        if self.action_space_ is None:
-            self.pipes[0].send(["action space", None])
-            func, self.action_space_ = self.pipes[0].recv()
+        assert func == "action space", f"'{func}' istead of 'action space'"
 
-            assert func == "action space", f"'{func}' istead of 'action space'"
+        return action_space
 
-        return self.action_space_
-
-    @property
+    @cached_property
     def reward_function(self):
-        if self.reward_function_ is None:
-            self.pipes[0].send(["reward function", None])
-            func, self.reward_function_ = self.pipes[0].recv()
+        self.pipes[0].send(["reward function", None])
+        func, reward_function = self.pipes[0].recv()
 
-            assert func == "reward function", f"'{func}' instead of 'reward function'"
+        assert func == "reward function", f"'{func}' instead of 'reward function'"
 
-        return self.reward_function_
+        return reward_function
 
-    @property
+    @cached_property
     def success_criterion(self):
-        if self.success_criterion_ is None:
-            self.pipes[0].send(["success criterion", None])
-            func, self.success_criterion_ = self.pipes[0].recv()
+        self.pipes[0].send(["success criterion", None])
+        func, success_criterion = self.pipes[0].recv()
 
-            assert (
-                func == "success criterion"
-            ), f"'{func}' instead of 'success criterion'"
+        assert func == "success criterion", f"'{func}' instead of 'success criterion'"
 
-        return self.success_criterion_
+        return success_criterion
