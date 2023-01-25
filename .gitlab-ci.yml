@@ -1,4 +1,5 @@
 stages:
+  - testing
   - linting
 
 isort:
@@ -26,3 +27,14 @@ pylint:
   image: registry.gitlab.com/mafda/python-linting
   script:
     - find . -type f -name "*.py" | xargs pylint
+
+pytest:
+  stage: testing
+  image: conda/miniconda3
+  before_script:
+    - conda env create -f environment.yml
+    - conda init bash
+    - source ~/.bashrc
+    - conda activate r2r 
+  script:
+    - pytest -v

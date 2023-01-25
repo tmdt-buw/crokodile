@@ -4,10 +4,10 @@ from stage import Stage
 
 
 class Mapper(Stage):
-    def __init__(self, config):
+    def __init__(self, config, **kwargs):
         super(Mapper, self).__init__(config)
 
-    def __new__(cls, config):
+    def __new__(cls, config, **kwargs):
         robot_source_config = config["EnvSource"]["env_config"]["robot_config"]
         robot_target_config = config["EnvTarget"]["env_config"]["robot_config"]
 

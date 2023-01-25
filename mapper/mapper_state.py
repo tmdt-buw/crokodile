@@ -251,3 +251,12 @@ class StateMapper(LitStage):
             on_epoch=True,
         )
         return loss_state_mapper_disc
+
+    @classmethod
+    def get_relevant_config(cls, config):
+        config_ = super().get_relevant_config(config)
+
+        config_["EnvSource"] = config["EnvSource"]
+        config_["EnvTarget"] = config["EnvTarget"]
+
+        return config_

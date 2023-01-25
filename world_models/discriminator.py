@@ -12,6 +12,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 from config import data_folder
 from stage import LitStage
 from utils.nn import create_network
+from environments.environment_robot_task import EnvironmentRobotTask
 
 
 class DeepSVDD(torch.nn.Module):
@@ -101,18 +102,18 @@ class Discriminator(LitStage):
 
     @cached_property
     def discriminator(self):
-        data_path = os.path.join(
-            data_folder, self.config[self.__class__.__name__]["data"]
-        )
-        data = torch.load(f=data_path)
-        self.config[self.__class__.__name__]["model"]["in_dim"] = data[
-            "trajectories_states_train"
-        ].shape[-1]
+        env = EnvironmentRobotTask(self.config["EnvTarget"]["env_config"])
+
+        state_dim = env.state_space["robot"]["arm"]["joint_positions"].shape[-1]
+
+        self.config[self.__class__.__name__]["model"]["in_dim"] = state_dim
+
         discriminator = DeepSVDD(self.config[self.__class__.__name__]["model"])
         # init center c with initial forward pass of some data
-        data_c = data["trajectories_states_train"][:, :-1].reshape(
-            -1, data["trajectories_states_train"].shape[-1]
-        )[: self.config[self.__class__.__name__]["model"]["init_center_samples"], :]
+        data_c = torch.randn(
+            self.config[self.__class__.__name__]["model"]["init_center_samples"],
+            state_dim,
+        )
         discriminator.eval()
         with torch.no_grad():
             output = discriminator(data_c)
@@ -170,4 +171,10 @@ class Discriminator(LitStage):
             self.discriminator.radius.data = radius
         return loss
 
-    
+    @classmethod
+    def get_relevant_config(cls, config):
+        config_ = super().get_relevant_config(config)
+
+        config_["EnvTarget"] = config["EnvTarget"]
+
+        return config_
