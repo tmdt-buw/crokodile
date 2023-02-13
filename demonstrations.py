@@ -12,9 +12,8 @@ from tqdm import tqdm
 
 import wandb
 from environments.environment_robot_task import EnvironmentRobotTask
-from orchestrator import Orchestrator
-
 from mapper import Mapper
+from orchestrator import Orchestrator
 from stage import Stage
 from trainer.expert import Expert
 
@@ -66,15 +65,15 @@ class Demonstrations(Stage):
         else:
             raise ValueError(f"Invalid path: {path}")
 
+
 class RandomPolicy:
     def __init__(self, env_config):
         env = EnvironmentRobotTask(env_config)
         self.action_space = env.action_space
 
     def compute_actions(self, observations):
-        return {
-            env_id: self.action_space.sample() for env_id in observations.keys()
-            }
+        return {env_id: self.action_space.sample() for env_id in observations.keys()}
+
 
 class EnvironmentSampler(Demonstrations):
     def __init__(self, config):
@@ -91,7 +90,9 @@ class EnvironmentSampler(Demonstrations):
         env_config = self.config[config.get("env")]
 
         if policy_type == "Random":
-            assert discard_unsuccessful == False, "discard_unsuccessful is not supported for Random policy"
+            assert (
+                discard_unsuccessful == False
+            ), "discard_unsuccessful is not supported for Random policy"
 
             policy = RandomPolicy(env_config["env_config"])
         elif policy_type == "Expert":

@@ -395,7 +395,9 @@ class KinematicChainLoss(torch.nn.Module):
         distance_orientations = distance_orientations.view(-1, s, m, t, n)
 
         loss_orientations = torch.einsum(
-            "bsmtn,mn->bst", distance_orientations, self.weight_matrix_orientations
+            "bsmtn,mn->bst",
+            distance_orientations,
+            self.weight_matrix_orientations,
         )
 
         loss = loss_positions + loss_orientations

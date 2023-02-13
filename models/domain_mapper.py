@@ -7,22 +7,23 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import torch
-from torch.utils.data import DataLoader, TensorDataset
-from torch.nn import MSELoss
 import pytorch_lightning as pl
+import torch
 from pytorch_lightning.trainer.supporters import CombinedLoader
+from torch.nn import MSELoss
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.utils.data import DataLoader, TensorDataset
+
 from models.trajectory_encoder import TrajectoryEncoder
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from utils.nn import KinematicChainLoss, create_network
-from utils.soft_dtw_cuda import SoftDTW
-from models.dht import get_dht_model
 from itertools import chain
 
 from config import data_folder
+from models.dht import get_dht_model
+from utils.nn import KinematicChainLoss, create_network
+from utils.soft_dtw_cuda import SoftDTW
 
 
 class LitDomainMapper(pl.LightningModule):
@@ -207,7 +208,9 @@ class LitDomainMapper(pl.LightningModule):
         )[0, :, :3, -1]
 
         weight_matrix_AB_p, weight_matrix_AB_o = self.get_weight_matrices(
-            link_positions_A, link_positions_B, self.hparams.weight_matrix_exponent
+            link_positions_A,
+            link_positions_B,
+            self.hparams.weight_matrix_exponent,
         )
 
         loss_fn_kinematics_AB = KinematicChainLoss(
@@ -379,11 +382,17 @@ class LitDomainMapper(pl.LightningModule):
         link_poses_X = dht_model_X(states_X)
         link_poses_Y = dht_model_Y(states_Y)
 
-        loss_state_mapper_XY, loss_state_mapper_XY_p, loss_state_mapper_XY_o = loss_fn(
-            link_poses_X, link_poses_Y
-        )
+        (
+            loss_state_mapper_XY,
+            loss_state_mapper_XY_p,
+            loss_state_mapper_XY_o,
+        ) = loss_fn(link_poses_X, link_poses_Y)
 
-        return loss_state_mapper_XY, loss_state_mapper_XY_p, loss_state_mapper_XY_o
+        return (
+            loss_state_mapper_XY,
+            loss_state_mapper_XY_p,
+            loss_state_mapper_XY_o,
+        )
 
     def loss_action_mapper(
         self,
@@ -510,7 +519,9 @@ class LitDomainMapper(pl.LightningModule):
 
         if optimizer_idx == 0:
             loss_transition_model = self.loss_transition_model(
-                batch["A"], self.transition_model_A, self.loss_fn_transition_model
+                batch["A"],
+                self.transition_model_A,
+                self.loss_fn_transition_model,
             )
             self.log(
                 log_prefix + "loss_transition_model_A",
@@ -521,7 +532,9 @@ class LitDomainMapper(pl.LightningModule):
             return loss_transition_model
         elif optimizer_idx == 1:
             loss_transition_model = self.loss_transition_model(
-                batch["B"], self.transition_model_B, self.loss_fn_transition_model
+                batch["B"],
+                self.transition_model_B,
+                self.loss_fn_transition_model,
             )
             self.log(
                 log_prefix + "loss_transition_model_B",
@@ -652,11 +665,17 @@ class LitDomainMapper(pl.LightningModule):
             lr=self.hparams.state_mapper_config.get("lr", 3e-4),
         )
         optimizer_action_mapper_AB = torch.optim.AdamW(
-            chain(self.trajectory_encoder_AZ.parameters(), self.policy_ZB.parameters()),
+            chain(
+                self.trajectory_encoder_AZ.parameters(),
+                self.policy_ZB.parameters(),
+            ),
             lr=self.hparams.action_mapper_config.get("lr", 3e-4),
         )
         optimizer_action_mapper_BA = torch.optim.AdamW(
-            chain(self.trajectory_encoder_BZ.parameters(), self.policy_ZA.parameters()),
+            chain(
+                self.trajectory_encoder_BZ.parameters(),
+                self.policy_ZA.parameters(),
+            ),
             lr=self.hparams.action_mapper_config.get("lr", 3e-4),
         )
 
@@ -684,9 +703,11 @@ class LitDomainMapper(pl.LightningModule):
 
 
 if __name__ == "__main__":
-    from pytorch_lightning.loggers import WandbLogger
-    from config import wandb_config
     import tempfile
+
+    from pytorch_lightning.loggers import WandbLogger
+
+    from config import wandb_config
 
     wandb_config.update(
         {

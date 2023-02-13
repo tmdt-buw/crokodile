@@ -3,9 +3,9 @@ from copy import deepcopy
 from multiprocessing import cpu_count
 
 import torch
+from main import Apprentice
 
 from environments.environment_robot_task import Callbacks
-from main import Apprentice
 
 if __name__ == "__main__":
 

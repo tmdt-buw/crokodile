@@ -1,10 +1,12 @@
-import torch
-import pybullet as p
-from environments.environments_robot_task.robots import get_robot
-from environments import get_env
-from environments.experts import get_expert
-from utils.nn import Sawtooth, KinematicChainLoss, get_weight_matrices
 from copy import deepcopy
+
+import pybullet as p
+import torch
+
+from environments import get_env
+from environments.environments_robot_task.robots import get_robot
+from environments.experts import get_expert
+from utils.nn import KinematicChainLoss, Sawtooth, get_weight_matrices
 
 p.connect(p.GUI)
 # p.connect(p.DIRECT)
@@ -113,7 +115,10 @@ while len(bc_states_B) < 100:
 
     if state_B is not None:
         env_B.reset(
-            {"state": {"robot": {"arm": {"joint_positions": state_B}}}, "goal": goal},
+            {
+                "state": {"robot": {"arm": {"joint_positions": state_B}}},
+                "goal": goal,
+            },
             force=True,
         )
     else:

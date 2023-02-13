@@ -3,13 +3,14 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
+import logging
+
 import numpy as np
 
+from mapper import Mapper
 from world_models.discriminator import Discriminator
 from world_models.transition import TransitionModel
-from mapper import Mapper
 
-import logging
 logging.getLogger().setLevel(logging.INFO)
 
 data_file_A = "panda_5_10_10.pt"

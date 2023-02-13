@@ -4,12 +4,12 @@ TODO dicuss if we can replace with pick_place task
 """
 
 
-from gym import spaces
-import numpy as np
-from numpy.random import RandomState
 import os
 
+import numpy as np
+from gym import spaces
 from karolos.agents.utils import unwind_dict_values
+from numpy.random import RandomState
 
 try:
     from . import Task
@@ -197,9 +197,10 @@ class Push(Task):
 
         position_object = np.array(position_object)
 
-        position_object_desired, _ = self.bullet_client.getBasePositionAndOrientation(
-            self.target
-        )
+        (
+            position_object_desired,
+            _,
+        ) = self.bullet_client.getBasePositionAndOrientation(self.target)
 
         position_object_desired = np.array(position_object_desired)
 
@@ -226,9 +227,10 @@ class Push(Task):
 
 
 if __name__ == "__main__":
+    import time
+
     import pybullet as p
     import pybullet_data as pd
-    import time
 
     p.connect(p.GUI)
     p.setAdditionalSearchPath(pd.getDataPath())

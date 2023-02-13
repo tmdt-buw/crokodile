@@ -5,10 +5,9 @@ from pathlib import Path
 import numpy as np
 import pybullet as p
 from gym import spaces
-from numpy.random import RandomState
-
 from karolos.agents.utils import unwind_dict_values
 from karolos.environments.environments_robot_task.robots.robot import Robot
+from numpy.random import RandomState
 
 sys.path.append(str(Path(__file__).resolve().parent))
 from task import Task
@@ -132,7 +131,11 @@ class TaskThrow(Task):
             angle = np.arctan2(desired_state[1], desired_state[0])
 
             desired_state = np.array(
-                [self.distance * np.cos(angle), self.distance * np.sin(angle), 0]
+                [
+                    self.distance * np.cos(angle),
+                    self.distance * np.sin(angle),
+                    0,
+                ]
             )
 
             desired_state += self.offset
@@ -199,9 +202,10 @@ class TaskThrow(Task):
 
         velocity_object, _ = self.bullet_client.getBaseVelocity(self.object)
 
-        position_object_desired, _ = self.bullet_client.getBasePositionAndOrientation(
-            self.target
-        )
+        (
+            position_object_desired,
+            _,
+        ) = self.bullet_client.getBasePositionAndOrientation(self.target)
         position_object_desired = np.array(position_object_desired)
 
         state = {}
@@ -226,8 +230,9 @@ class TaskThrow(Task):
 
 
 if __name__ == "__main__":
-    import pybullet_data as pd
     import time
+
+    import pybullet_data as pd
 
     p.connect(p.GUI)
     p.setAdditionalSearchPath(pd.getDataPath())

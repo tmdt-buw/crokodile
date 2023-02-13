@@ -1,9 +1,9 @@
 import math
 
 import torch
+import torch.nn as nn
 from click.core import batch
 from torch import Tensor
-import torch.nn as nn
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
 
@@ -45,7 +45,10 @@ class Seq2SeqTransformerEncoder(nn.Module):
 
     def forward(self, src: Tensor):
         src = torch.nn.functional.pad(
-            src, (0, self.max_len - self.src_len), mode="constant", value=torch.nan
+            src,
+            (0, self.max_len - self.src_len),
+            mode="constant",
+            value=torch.nan,
         )
 
         src = src.unsqueeze(1)
