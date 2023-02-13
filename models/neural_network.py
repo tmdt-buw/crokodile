@@ -19,7 +19,13 @@ from torch.nn.functional import mse_loss
 
 
 def create_network(
-    self, in_dim, out_dim, network_width, network_depth, dropout, out_activation=None
+    self,
+    in_dim,
+    out_dim,
+    network_width,
+    network_depth,
+    dropout,
+    out_activation=None,
 ):
     network_structure = [
         ("linear", network_width),

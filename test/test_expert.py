@@ -1,5 +1,5 @@
-from trainer.expert import Expert
 from environments.environment_robot_task import Callbacks
+from trainer.expert import Expert
 
 
 def test_expert_runnable():

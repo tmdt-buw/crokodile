@@ -1,9 +1,9 @@
 import os
 import random
+from collections import OrderedDict
 
 import numpy as np
 import torch
-from collections import OrderedDict
 
 
 def unwind_dict_values(element, framework="np", device="cpu"):

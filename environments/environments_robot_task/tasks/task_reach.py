@@ -152,7 +152,9 @@ class TaskReach(Task):
             )
 
             self.bullet_client.resetBasePositionAndOrientation(
-                self.target, desired_target_position + self.offset, [0, 0, 0, 1]
+                self.target,
+                desired_target_position + self.offset,
+                [0, 0, 0, 1],
             )
             self.bullet_client.stepSimulation()
 
@@ -217,8 +219,9 @@ class TaskReach(Task):
 
 
 if __name__ == "__main__":
-    import pybullet_data as pd
     import time
+
+    import pybullet_data as pd
 
     p.connect(p.GUI)
     p.setAdditionalSearchPath(pd.getDataPath())

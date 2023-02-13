@@ -1,21 +1,22 @@
-from copy import deepcopy
 import os
 import sys
+from copy import deepcopy
 from pathlib import Path
 
-from torch.nn.functional import relu
 import torch
 from pytorch_lightning.trainer.supporters import CombinedLoader
-from world_models.discriminator import Discriminator
-from models.dht import get_dht_model
+from torch.nn.functional import relu
 
+from models.dht import get_dht_model
+from world_models.discriminator import Discriminator
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from utils.nn import create_network, KinematicChainLoss, get_weight_matrices
+from functools import cached_property
+
 from config import data_folder
 from stage import LitStage
-from functools import cached_property
+from utils.nn import KinematicChainLoss, create_network, get_weight_matrices
 
 
 class StateMapper(LitStage):
@@ -32,12 +33,14 @@ class StateMapper(LitStage):
     @cached_property
     def state_mapper(self):
         data_path_X = os.path.join(
-            data_folder, self.config[self.__class__.__name__]["data"]["data_file_X"]
+            data_folder,
+            self.config[self.__class__.__name__]["data"]["data_file_X"],
         )
         data_X = torch.load(data_path_X)
 
         data_path_Y = os.path.join(
-            data_folder, self.config[self.__class__.__name__]["data"]["data_file_Y"]
+            data_folder,
+            self.config[self.__class__.__name__]["data"]["data_file_Y"],
         )
         data_Y = torch.load(data_path_Y)
 
@@ -58,12 +61,14 @@ class StateMapper(LitStage):
     @cached_property
     def dht_models(self):
         data_path_X = os.path.join(
-            data_folder, self.config[self.__class__.__name__]["data"]["data_file_X"]
+            data_folder,
+            self.config[self.__class__.__name__]["data"]["data_file_X"],
         )
         data_X = torch.load(data_path_X)
 
         data_path_Y = os.path.join(
-            data_folder, self.config[self.__class__.__name__]["data"]["data_file_Y"]
+            data_folder,
+            self.config[self.__class__.__name__]["data"]["data_file_Y"],
         )
         data_Y = torch.load(data_path_Y)
 
@@ -79,12 +84,14 @@ class StateMapper(LitStage):
     @cached_property
     def loss_function(self):
         data_path_A = os.path.join(
-            data_folder, self.config[self.__class__.__name__]["data"]["data_file_X"]
+            data_folder,
+            self.config[self.__class__.__name__]["data"]["data_file_X"],
         )
         data_A = torch.load(data_path_A)
 
         data_path_B = os.path.join(
-            data_folder, self.config[self.__class__.__name__]["data"]["data_file_Y"]
+            data_folder,
+            self.config[self.__class__.__name__]["data"]["data_file_Y"],
         )
         data_B = torch.load(data_path_B)
 
@@ -117,19 +124,25 @@ class StateMapper(LitStage):
 
     def train_dataloader(self):
         dataloader_train_A = self.get_dataloader(
-            self.config[self.__class__.__name__]["data"]["data_file_X"], "train"
+            self.config[self.__class__.__name__]["data"]["data_file_X"],
+            "train",
         )
         dataloader_train_B = self.get_dataloader(
-            self.config[self.__class__.__name__]["data"]["data_file_Y"], "train"
+            self.config[self.__class__.__name__]["data"]["data_file_Y"],
+            "train",
         )
         return CombinedLoader({"A": dataloader_train_A, "B": dataloader_train_B})
 
     def val_dataloader(self):
         dataloader_validation_A = self.get_dataloader(
-            self.config[self.__class__.__name__]["data"]["data_file_X"], "test", False
+            self.config[self.__class__.__name__]["data"]["data_file_X"],
+            "test",
+            False,
         )
         dataloader_validation_B = self.get_dataloader(
-            self.config[self.__class__.__name__]["data"]["data_file_Y"], "test", False
+            self.config[self.__class__.__name__]["data"]["data_file_Y"],
+            "test",
+            False,
         )
         return CombinedLoader(
             {"A": dataloader_validation_A, "B": dataloader_validation_B}

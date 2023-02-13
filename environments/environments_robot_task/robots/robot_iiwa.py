@@ -9,7 +9,6 @@ sys.path.append(str(Path(__file__).resolve().parent))
 
 from robot import Robot
 
-
 # todo implement domain randomization
 
 
@@ -63,8 +62,18 @@ class RobotIIWA(Robot):
                 2.44346095279,
                 110,
             ),
-            "lbr_iiwa_joint_6": (0, (-2.09439510239, 2.09439510239), 3.14159265359, 40),
-            "lbr_iiwa_joint_7": (0, (-3.05432619099, 3.05432619099), 3.14159265359, 40),
+            "lbr_iiwa_joint_6": (
+                0,
+                (-2.09439510239, 2.09439510239),
+                3.14159265359,
+                40,
+            ),
+            "lbr_iiwa_joint_7": (
+                0,
+                (-3.05432619099, 3.05432619099),
+                3.14159265359,
+                40,
+            ),
         }
 
         joints_hand = {

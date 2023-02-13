@@ -174,21 +174,30 @@ class MapperWeaSCL(LitStage, Mapper):
     def train_dataloader(self):
         # todo: replace data file with data stage
         dataloader_train_source = self.get_dataloader(
-            self.config[self.__class__.__name__]["data"]["data_file_X"], "train"
+            self.config[self.__class__.__name__]["data"]["data_file_X"],
+            "train",
         )
         dataloader_train_target = self.get_dataloader(
-            self.config[self.__class__.__name__]["data"]["data_file_Y"], "train"
+            self.config[self.__class__.__name__]["data"]["data_file_Y"],
+            "train",
         )
         return CombinedLoader(
-            {"source": dataloader_train_source, "target": dataloader_train_target}
+            {
+                "source": dataloader_train_source,
+                "target": dataloader_train_target,
+            }
         )
 
     def val_dataloader(self):
         dataloader_validation_source = self.get_dataloader(
-            self.config[self.__class__.__name__]["data"]["data_file_X"], "test", False
+            self.config[self.__class__.__name__]["data"]["data_file_X"],
+            "test",
+            False,
         )
         dataloader_validation_target = self.get_dataloader(
-            self.config[self.__class__.__name__]["data"]["data_file_Y"], "test", False
+            self.config[self.__class__.__name__]["data"]["data_file_Y"],
+            "test",
+            False,
         )
         return CombinedLoader(
             {

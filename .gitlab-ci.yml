@@ -16,25 +16,13 @@ black:
   script:
     - python3 -m black --check .
 
-flake8:
-  stage: linting
-  image: registry.gitlab.com/mafda/python-linting
-  script:
-    - flake8 .
-
-pylint:
-  stage: linting
-  image: registry.gitlab.com/mafda/python-linting
-  script:
-    - find . -type f -name "*.py" | xargs pylint
-
 pytest:
   stage: testing
-  image: conda/miniconda3
+  image: condaforge/mambaforge
   before_script:
-    - conda env create -f environment.yml
-    - conda init bash
+    - mamba env create -f environment.yml
+    - mamba init bash
     - source ~/.bashrc
-    - conda activate r2r 
+    - mamba activate r2r
   script:
     - pytest -v

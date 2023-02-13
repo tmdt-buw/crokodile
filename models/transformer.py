@@ -1,8 +1,8 @@
 import math
 
 import torch
-from torch import Tensor
 import torch.nn as nn
+from torch import Tensor
 from torch.nn import Transformer
 
 
@@ -150,8 +150,8 @@ if __name__ == "__main__":
 
     exit()
 
-    from trajectory_encoder import TrajectoryEncoder, generate_trajectory
     import numpy as np
+    from trajectory_encoder import TrajectoryEncoder, generate_trajectory
 
     max_seq_length = 9
     seq_length = 5

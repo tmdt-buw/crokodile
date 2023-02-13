@@ -21,13 +21,14 @@
 # SOFTWARE.
 # ----------------------------------------------------------------------------------------------------------------------
 
+import math
+
 import numpy as np
 import torch
 import torch.cuda
-from numba import jit
+from numba import cuda, jit
 from torch.autograd import Function
-from numba import cuda
-import math
+
 
 # ----------------------------------------------------------------------------------------------------------------------
 @cuda.jit
@@ -301,7 +302,12 @@ class SoftDTW(torch.nn.Module):
     """
 
     def __init__(
-        self, use_cuda, gamma=1.0, normalize=False, bandwidth=None, dist_func=None
+        self,
+        use_cuda,
+        gamma=1.0,
+        normalize=False,
+        bandwidth=None,
+        dist_func=None,
     ):
         """
         Initializes a new instance using the supplied parameters

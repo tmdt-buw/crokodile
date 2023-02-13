@@ -9,9 +9,7 @@ dependencies:
   - numpy
   - pip
   - pybullet
-  - python=3.8
   - pytorch
-  - pytorch-cuda=11.7
   - tqdm
   - wandb
   - pip:
