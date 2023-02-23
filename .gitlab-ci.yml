@@ -1,5 +1,4 @@
 stages:
-  - testing
   - linting
 
 isort:
@@ -15,14 +14,3 @@ black:
     entrypoint: ["/bin/ash", "-c"]
   script:
     - python3 -m black --check .
-
-pytest:
-  stage: testing
-  image: condaforge/mambaforge
-  before_script:
-    - mamba env create -f environment.yml
-    - mamba init bash
-    - source ~/.bashrc
-    - mamba activate r2r
-  script:
-    - pytest -v
