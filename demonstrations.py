@@ -4,13 +4,13 @@ from collections import defaultdict
 from multiprocessing import cpu_count
 
 import numpy as np
+import wandb
 from ray.rllib.evaluation.sample_batch_builder import SampleBatchBuilder
 from ray.rllib.models.preprocessors import get_preprocessor
 from ray.rllib.offline.json_reader import JsonReader
 from ray.rllib.offline.json_writer import JsonWriter
 from tqdm import tqdm
 
-import wandb
 from environments.environment_robot_task import EnvironmentRobotTask
 from mapper import Mapper
 from orchestrator import Orchestrator

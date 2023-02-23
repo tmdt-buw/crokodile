@@ -3,13 +3,13 @@ import os
 import re
 
 import numpy as np
+import wandb
 from ray.rllib.algorithms.bc import BC
 from ray.rllib.algorithms.marwil import MARWIL
 from ray.rllib.algorithms.ppo import PPO
 from ray.tune.registry import register_env
 from tqdm import tqdm
 
-import wandb
 from environments.environment_robot_task import EnvironmentRobotTask
 
 register_env("robot_task", lambda config: EnvironmentRobotTask(config))
@@ -147,9 +147,12 @@ class Trainer(Stage):
 
     @classmethod
     def get_relevant_config(cls, config):
-        return {
-            cls.__name__: {
-                "model_config": config[cls.__name__]["model_config"],
-                "train": config[cls.__name__]["train"],
+        try:
+            return {
+                cls.__name__: {
+                    "model": config[cls.__name__]["model"],
+                    "train": config[cls.__name__]["train"],
+                }
             }
-        }
+        except:
+            print("No config found for", cls.__name__)

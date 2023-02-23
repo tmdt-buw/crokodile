@@ -22,6 +22,7 @@ from multiprocessing import cpu_count, set_start_method
 
 import pytorch_lightning as pl
 import torch
+import wandb
 from pytorch_lightning.callbacks import (
     EarlyStopping,
     LearningRateMonitor,
@@ -30,7 +31,6 @@ from pytorch_lightning.callbacks import (
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.strategies import DDPStrategy
 
-import wandb
 from config import data_folder, wandb_config
 from models.dht import get_dht_model
 from utils.nn import KinematicChainLoss, NeuralNetwork, create_network

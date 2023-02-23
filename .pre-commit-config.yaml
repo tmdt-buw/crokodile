@@ -16,9 +16,17 @@ repos:
     -   id: black
 #-   repo: local
 #    hooks:
+#    - id: generate-data
+#      name: generate-data
+#      entry: python test/generate_data.py
+#      language: system
+#      pass_filenames: false
+#      always_run: true
+#-   repo: local
+#    hooks:
 #    - id: pytest-check
 #      name: pytest-check
-#      entry: pytest
+#      entry: pytest -k "not test_expert and not test_mapper_explicit"
 #      language: system
 #      pass_filenames: false
 #      always_run: true
