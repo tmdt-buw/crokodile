@@ -12,7 +12,8 @@ import torch
 from environments import get_env
 from environments.environments_robot_task.robots import get_robot
 from environments.experts import get_expert
-from utils.nn import KinematicChainLoss, Sawtooth, get_weight_matrices
+from utils.nn import Sawtooth, KinematicChainLoss, get_weight_matrices
+from copy import deepcopy
 
 p.connect(p.GUI)
 # p.connect(p.DIRECT)
