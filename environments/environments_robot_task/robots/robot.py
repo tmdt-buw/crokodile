@@ -4,13 +4,14 @@ import time
 from collections import namedtuple
 from enum import Enum
 
-import torch
 import numpy as np
 import pybullet as p
 import pybullet_data as pd
 import pybullet_utils.bullet_client as bc
+import torch
 from gym import spaces
-from models.dht import Rescale, DHT_Model
+
+from models.dht import DHT_Model, Rescale
 
 Joint = namedtuple(
     "Joint", ["id", "initial_position", "limits", "max_velocity", "max_torque"]
@@ -137,7 +138,10 @@ class Robot:
                 "arm": spaces.Dict(
                     {
                         "joint_positions": spaces.Box(
-                            -1.0, 1.0, shape=(len(self.joints_arm),), dtype=np.float64
+                            -1.0,
+                            1.0,
+                            shape=(len(self.joints_arm),),
+                            dtype=np.float64,
                         )
                     }
                 ),
@@ -324,7 +328,8 @@ class Robot:
         # reset until state is valid
         while True:
             for (_, joint), desired_state_joint in zip(
-                self.joints_arm.items(), desired_state["arm"]["joint_positions"]
+                self.joints_arm.items(),
+                desired_state["arm"]["joint_positions"],
             ):
                 joint_position = np.interp(desired_state_joint, [-1, 1], joint.limits)
 
@@ -403,7 +408,9 @@ class Robot:
             elif indicators == p.GEOM_SPHERE:
                 linkVisualShapeIndices.append(
                     p.createVisualShape(
-                        p.GEOM_SPHERE, radius=indicator_size, rgbaColor=rgbaColor
+                        p.GEOM_SPHERE,
+                        radius=indicator_size,
+                        rgbaColor=rgbaColor,
                     )
                 )
 
@@ -463,14 +470,19 @@ class Robot:
         joint_positions, joint_velocities = [], []
 
         for joint in self.joints:
-            joint_position, joint_velocity, _, _ = self.bullet_client.getJointState(
-                self.model_id, joint.id
-            )
+            (
+                joint_position,
+                joint_velocity,
+                _,
+                _,
+            ) = self.bullet_client.getJointState(self.model_id, joint.id)
 
             joint_positions.append(np.interp(joint_position, joint.limits, [-1, 1]))
             joint_velocities.append(
                 np.interp(
-                    joint_velocity, [-joint.max_velocity, joint.max_velocity], [-1, 1]
+                    joint_velocity,
+                    [-joint.max_velocity, joint.max_velocity],
+                    [-1, 1],
                 )
             )
 

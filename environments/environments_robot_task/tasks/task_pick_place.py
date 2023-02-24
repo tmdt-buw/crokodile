@@ -10,9 +10,8 @@ from numpy.random import RandomState
 from utils.utils import unwind_dict_values
 
 sys.path.append(str(Path(__file__).resolve().parent))
-from task import Task
-
 import pybullet_data as pd
+from task import Task
 
 p.setAdditionalSearchPath(pd.getDataPath())
 
@@ -246,9 +245,10 @@ class TaskPickPlace(Task):
             elif state_robot["hand"] == robot.status_hand.CLOSING.value:  # closing
                 assert self.tcp_object_constraint is None
 
-                position_object, _ = self.bullet_client.getBasePositionAndOrientation(
-                    self.object
-                )
+                (
+                    position_object,
+                    _,
+                ) = self.bullet_client.getBasePositionAndOrientation(self.object)
                 position_object = np.array(position_object) - self.offset
 
                 # todo: make theshold a parameter
@@ -294,9 +294,10 @@ class TaskPickPlace(Task):
             ]
         )
 
-        position_object_desired, _ = self.bullet_client.getBasePositionAndOrientation(
-            self.target
-        )
+        (
+            position_object_desired,
+            _,
+        ) = self.bullet_client.getBasePositionAndOrientation(self.target)
         position_object_desired = np.array(position_object_desired) - self.offset
         position_object_desired = np.array(
             [
@@ -332,8 +333,9 @@ class TaskPickPlace(Task):
 
 
 if __name__ == "__main__":
-    import pybullet_data as pd
     import time
+
+    import pybullet_data as pd
 
     p.connect(p.GUI)
     p.setAdditionalSearchPath(pd.getDataPath())

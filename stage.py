@@ -10,12 +10,11 @@ from pathlib import Path
 
 import pytorch_lightning as pl
 import torch
+import wandb
 from pytorch_lightning import LightningModule
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 from torch.utils.data import DataLoader, TensorDataset
-
-import wandb
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from config import data_folder
@@ -76,7 +75,8 @@ class Stage:
                     save = False
                 except Exception as e:
                     logging.warning(
-                        f"Loading cache not possible " f"for {self.__class__.__name__}. "
+                        f"Loading cache not possible "
+                        f"for {self.__class__.__name__}. "
                     )
                     logging.exception(e)
                     self.generate()
@@ -95,6 +95,8 @@ class Stage:
             shutil.rmtree(self.tmpdir)
         except AttributeError:
             pass
+        except FileNotFoundError:
+            logging.info(f"{self.tmpdir} already deleted.")
 
     def generate(self):
         raise NotImplementedError(
@@ -175,8 +177,11 @@ class LitStage(LightningModule, Stage):
             )
             trainer.fit(self)
 
-            self.load_from_checkpoint(checkpoint_callback.best_model_path, config=self.config, load_checkpoint=True)
-
+            self.load_from_checkpoint(
+                checkpoint_callback.best_model_path,
+                config=self.config,
+                load_checkpoint=True,
+            )
 
     def load(self, path=None):
         if path is None and self.config["cache"]["mode"] == "wandb":
@@ -192,7 +197,9 @@ class LitStage(LightningModule, Stage):
 
             checkpoint_path = os.path.join(self.tmpdir, f"state_dict_{self.hash}.pt")
 
-            assert os.path.isfile(checkpoint_path), f"Checkpoint file not found {checkpoint_path}"
+            assert os.path.isfile(
+                checkpoint_path
+            ), f"Checkpoint file not found {checkpoint_path}"
 
             self.load(checkpoint_path)
         elif os.path.exists(path):

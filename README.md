@@ -8,4 +8,3 @@ The proposed approach is executed in four stages:
 2. Generate domain mappings
 3. Transfer expert knowledge to target domain
 4. Boost target agent
-

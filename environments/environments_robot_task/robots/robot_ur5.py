@@ -3,14 +3,14 @@ import os
 import sys
 import time
 from pathlib import Path
-import torch
+
 import numpy as np
 import pylab as p
+import torch
 
 sys.path.append(str(Path(__file__).resolve().parent))
 
-from robot import Robot, Link
-
+from robot import Link, Robot
 
 # todo implement domain randomization
 
@@ -235,6 +235,7 @@ class RobotUR5(Robot):
 
 if __name__ == "__main__":
     import pybullet as p
+
     from utils.nn import Sawtooth
 
     p.connect(p.GUI)

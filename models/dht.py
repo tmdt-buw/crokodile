@@ -1,11 +1,19 @@
-import torch
-from utils.nn import NeuralNetwork, Rescale, Sawtooth
 import numpy as np
+import torch
+
+from utils.nn import NeuralNetwork, Rescale, Sawtooth
 
 
 class DHT_Transform(torch.nn.Module):
     def __init__(
-        self, theta=None, d=None, a=0, alpha=0, proximal=False, upscale_dim=False, device="cpu",
+        self,
+        theta=None,
+        d=None,
+        a=0,
+        alpha=0,
+        proximal=False,
+        upscale_dim=False,
+        device="cpu",
     ):
         super(DHT_Transform, self).__init__()
 
@@ -257,8 +265,8 @@ if __name__ == "__main__":
     #         print(theta, d, a, alpha)
     #         print(model.theta.data, model.d.data, model.a.data, model.alpha.data)
 
-    from dht import DHT_Model as DHT_Model_static
     import numpy as np
+    from dht import DHT_Model as DHT_Model_static
     from matplotlib import pyplot as plt
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -375,7 +383,10 @@ if __name__ == "__main__":
 
                     for pA, pB, color in zip(points[:-1], points[1:], colors):
                         ax.plot(
-                            [pA[0], pB[0]], [pA[1], pB[1]], zs=[pA[2], pB[2]], c=color
+                            [pA[0], pB[0]],
+                            [pA[1], pB[1]],
+                            zs=[pA[2], pB[2]],
+                            c=color,
                         )
 
                     prev_length += link_length
@@ -405,7 +416,10 @@ if __name__ == "__main__":
 
                     for pA, pB, color in zip(points[:-1], points[1:], colors):
                         ax.plot(
-                            [pA[0], pB[0]], [pA[1], pB[1]], zs=[pA[2], pB[2]], c=color
+                            [pA[0], pB[0]],
+                            [pA[1], pB[1]],
+                            zs=[pA[2], pB[2]],
+                            c=color,
                         )
 
                     prev_length += link_length

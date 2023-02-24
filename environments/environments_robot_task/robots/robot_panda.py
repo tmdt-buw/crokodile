@@ -1,12 +1,12 @@
-import numpy as np
 import os
 import sys
-
 from pathlib import Path
+
+import numpy as np
 
 sys.path.append(str(Path(__file__).resolve().parent))
 
-from robot import Robot, Link
+from robot import Link, Robot
 
 
 class RobotPanda(Robot):
@@ -53,8 +53,20 @@ class RobotPanda(Robot):
             {"d": 0.384, "a": -0.0825, "alpha": -np.pi / 2, "proximal": True},
             {"d": 0.0, "a": 0.0, "alpha": np.pi / 2, "proximal": True},
             {"d": 0.0, "a": 0.088, "alpha": np.pi / 2, "proximal": True},
-            {"theta": 0.0, "d": 0.107, "a": 0.0, "alpha": 0.0, "proximal": True},
-            {"theta": 0.0, "d": -0.105, "a": 0.0, "alpha": np.pi, "proximal": True},
+            {
+                "theta": 0.0,
+                "d": 0.107,
+                "a": 0.0,
+                "alpha": 0.0,
+                "proximal": True,
+            },
+            {
+                "theta": 0.0,
+                "d": -0.105,
+                "a": 0.0,
+                "alpha": np.pi,
+                "proximal": True,
+            },
         ]
 
         self.index_tcp = len(links) - 1

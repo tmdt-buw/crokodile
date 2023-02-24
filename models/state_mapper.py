@@ -10,32 +10,30 @@ import sys
 from pathlib import Path
 
 import numpy as np
-from torch.utils.data import DataLoader, TensorDataset
-from torch.nn import MSELoss
 from pytorch_lightning.trainer.supporters import CombinedLoader
+from torch.nn import MSELoss
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.utils.data import DataLoader, TensorDataset
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from utils.nn import NeuralNetwork, KinematicChainLoss, create_network
-from models.dht import get_dht_model
-import wandb
-from config import data_folder
 import os
-
-import torch
-import pytorch_lightning as pl
-from pytorch_lightning.loggers import WandbLogger
-from pytorch_lightning.strategies import DDPStrategy
-from pytorch_lightning.callbacks import (
-    ModelCheckpoint,
-    EarlyStopping,
-    LearningRateMonitor,
-)
-
 from multiprocessing import cpu_count, set_start_method
 
-from config import wandb_config
+import pytorch_lightning as pl
+import torch
+import wandb
+from pytorch_lightning.callbacks import (
+    EarlyStopping,
+    LearningRateMonitor,
+    ModelCheckpoint,
+)
+from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.strategies import DDPStrategy
+
+from config import data_folder, wandb_config
+from models.dht import get_dht_model
+from utils.nn import KinematicChainLoss, NeuralNetwork, create_network
 
 
 class LitStateMapper(pl.LightningModule):
@@ -247,14 +245,20 @@ class LitStateMapper(pl.LightningModule):
         link_poses_X = dht_model_X(states_X)
         link_poses_Y = dht_model_Y(states_Y)
 
-        loss_state_mapper_XY, loss_state_mapper_XY_p, loss_state_mapper_XY_o = loss_fn(
-            link_poses_X, link_poses_Y
-        )
+        (
+            loss_state_mapper_XY,
+            loss_state_mapper_XY_p,
+            loss_state_mapper_XY_o,
+        ) = loss_fn(link_poses_X, link_poses_Y)
 
         # error_tcp_p = torch.norm(link_poses_X[:, -1, :3, -1] - link_poses_Y[:, -1, :3, -1], p=2, dim=-1).mean()
         # error_tcp_o = torch.norm(link_poses_X[:, -1, :3, -1] - link_poses_Y[:, -1, :3, -1], p=2, dim=-1).mean()
 
-        return loss_state_mapper_XY, loss_state_mapper_XY_p, loss_state_mapper_XY_o
+        return (
+            loss_state_mapper_XY,
+            loss_state_mapper_XY_p,
+            loss_state_mapper_XY_o,
+        )
 
     """
         Determine loss of action mapper on batch.
@@ -327,7 +331,10 @@ class LitStateMapper(pl.LightningModule):
         optimizer_dht_model_A.step()
 
         self.log(
-            "train_loss", loss_A.item() + loss_B.item(), on_step=False, on_epoch=True
+            "train_loss",
+            loss_A.item() + loss_B.item(),
+            on_step=False,
+            on_epoch=True,
         )
 
     def training_epoch_end(self, outputs):

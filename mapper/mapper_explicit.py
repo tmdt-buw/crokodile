@@ -150,7 +150,11 @@ class MapperExplicit(Mapper):
                 )
 
         for nn, (jp, kcl_, jp_next) in enumerate(
-            zip(joint_positions_target[:-1], kcl[:-1], joint_positions_target[1:])
+            zip(
+                joint_positions_target[:-1],
+                kcl[:-1],
+                joint_positions_target[1:],
+            )
         ):
             actions = (jp_next.unsqueeze(0) - jp.unsqueeze(1)) / self.robot_target.scale
 

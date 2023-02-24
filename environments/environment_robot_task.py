@@ -1,16 +1,16 @@
+import os
 import random
 import sys
+from copy import deepcopy
 from pathlib import Path
 from typing import Dict
-import numpy as np
-import os
-from copy import deepcopy
 
+import numpy as np
 import pybullet as p
 import pybullet_data as pd
 import pybullet_utils.bullet_client as bc
 from gym import Env, spaces
-from ray.rllib import RolloutWorker, BaseEnv, Policy
+from ray.rllib import BaseEnv, Policy, RolloutWorker
 from ray.rllib.algorithms.callbacks import DefaultCallbacks
 from ray.rllib.evaluation import Episode
 

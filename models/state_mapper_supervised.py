@@ -2,45 +2,47 @@
 Train state mappings with dht models.
 """
 
-import sys
 import os
+import sys
 from pathlib import Path
 
-from torch.utils.data import DataLoader, TensorDataset
 from torch.nn import MSELoss
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.utils.data import DataLoader, TensorDataset
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-import torch
-import pytorch_lightning as pl
-from pytorch_lightning.loggers import WandbLogger, TensorBoardLogger
-from pytorch_lightning.strategies import DDPStrategy
-from pytorch_lightning.callbacks import (
-    ModelCheckpoint,
-    EarlyStopping,
-    LearningRateMonitor,
-)
-
 from multiprocessing import cpu_count, set_start_method
 
-from config import wandb_config
-
-from utils.nn import (
-    NeuralNetwork,
-    KinematicChainLoss,
-    init_xavier_uniform,
-    create_network,
+import pytorch_lightning as pl
+import torch
+from pytorch_lightning.callbacks import (
+    EarlyStopping,
+    LearningRateMonitor,
+    ModelCheckpoint,
 )
+from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
+from pytorch_lightning.strategies import DDPStrategy
+
+from config import data_folder, wandb_config
 from models.dht import get_dht_model
 from models.transformer import Seq2SeqTransformer
-
-from config import data_folder
+from utils.nn import (
+    KinematicChainLoss,
+    NeuralNetwork,
+    create_network,
+    init_xavier_uniform,
+)
 
 
 class LitStateMapper(pl.LightningModule):
     def __init__(
-        self, data_file, state_mapper_config={}, batch_size=32, num_workers=1, **kwargs
+        self,
+        data_file,
+        state_mapper_config={},
+        batch_size=32,
+        num_workers=1,
+        **kwargs,
     ):
         super(LitStateMapper, self).__init__()
         self.save_hyperparameters()
@@ -83,7 +85,7 @@ class LitStateMapper(pl.LightningModule):
         """
             Maps states A -> B
             Required by super class LightningModule
-            
+
             Args:
                 states_A
             Returns:

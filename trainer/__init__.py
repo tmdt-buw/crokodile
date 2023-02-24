@@ -1,14 +1,15 @@
 import logging
 import os
 import re
+
 import numpy as np
+import wandb
 from ray.rllib.algorithms.bc import BC
 from ray.rllib.algorithms.marwil import MARWIL
 from ray.rllib.algorithms.ppo import PPO
 from ray.tune.registry import register_env
 from tqdm import tqdm
 
-import wandb
 from environments.environment_robot_task import EnvironmentRobotTask
 
 register_env("robot_task", lambda config: EnvironmentRobotTask(config))
@@ -39,13 +40,11 @@ class Trainer(Stage):
     def save(self, path=None):
         if path is None and self.config["cache"]["mode"] == "wandb":
             with wandb.init(
-                    id=self.run_id, **self.config["wandb_config"],
-                    resume="must"
+                id=self.run_id, **self.config["wandb_config"], resume="must"
             ) as run:
                 self.save(self.tmpdir)
 
-                artifact = wandb.Artifact(name=self.hash,
-                                          type=self.__class__.__name__)
+                artifact = wandb.Artifact(name=self.hash, type=self.__class__.__name__)
                 artifact.add_dir(self.tmpdir)
                 run.log_artifact(artifact)
         elif os.path.exists(path):
@@ -69,17 +68,14 @@ class Trainer(Stage):
             wandb.Api().artifact(wandb_checkpoint_path).download(self.tmpdir)
 
             checkpoint_folders = [
-                f
-                for f in os.listdir(self.tmpdir)
-                if re.match(r"^checkpoint_\d+$", f)
+                f for f in os.listdir(self.tmpdir) if re.match(r"^checkpoint_\d+$", f)
             ]
 
             assert checkpoint_folders, f"No checkpoints found in {self.tmpdir}"
 
             if len(checkpoint_folders) > 1:
                 logging.warning(
-                    f"More than one checkpoint folder found: "
-                    f"{checkpoint_folders}"
+                    f"More than one checkpoint folder found: " f"{checkpoint_folders}"
                 )
 
             checkpoint_path = os.path.join(self.tmpdir, checkpoint_folders[0])
@@ -102,10 +98,10 @@ class Trainer(Stage):
         )
 
         with wandb.init(
-                config=self.get_relevant_config(self.config),
-                **self.config.get("wandb_config", {"mode": "disabled"}),
-                group=self.__class__.__name__,
-                tags=[self.hash],
+            config=self.get_relevant_config(self.config),
+            **self.config.get("wandb_config", {"mode": "disabled"}),
+            group=self.__class__.__name__,
+            tags=[self.hash],
         ) as run:
             self.run_id = run.id
             pbar = tqdm(range(max_epochs))
@@ -116,10 +112,8 @@ class Trainer(Stage):
                 if "evaluation" in results:
                     results = results["evaluation"]
 
-                episode_reward_mean = results.get("episode_reward_mean",
-                                                  np.nan)
-                success_mean = results["custom_metrics"].get("success_mean",
-                                                             np.nan)
+                episode_reward_mean = results.get("episode_reward_mean", np.nan)
+                success_mean = results["custom_metrics"].get("success_mean", np.nan)
 
                 description = ""
 
@@ -153,9 +147,12 @@ class Trainer(Stage):
 
     @classmethod
     def get_relevant_config(cls, config):
-        return {
-            cls.__name__: {
-                "model_config": config[cls.__name__]["model_config"],
-                "train": config[cls.__name__]["train"],
+        try:
+            return {
+                cls.__name__: {
+                    "model": config[cls.__name__]["model"],
+                    "train": config[cls.__name__]["train"],
+                }
             }
-        }
+        except:
+            print("No config found for", cls.__name__)
