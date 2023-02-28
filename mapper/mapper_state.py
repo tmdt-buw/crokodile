@@ -21,36 +21,57 @@ from environments.environment_robot_task import EnvironmentRobotTask
 from utils.nn import KinematicChainLoss, create_network, get_weight_matrices
 
 
+class EnvWrapper:
+    def __init__(self, env):
+        self.state_space = deepcopy(env.state_space)
+        self.action_space = deepcopy(env.action_space)
+        self.dht_model = deepcopy(env.robot.dht_model)
+        self.state2angle = deepcopy(env.robot.state2angle)
+        self.angle2state = deepcopy(env.robot.angle2state)
+
+
 class StateMapper(LitStage):
     def __init__(self, config, **kwargs):
+        self.automatic_optimization = False
+
         super(StateMapper, self).__init__(config, **kwargs)
+
+    def init_models(self, config, **kwargs):
+        self.automatic_optimization = False
+
+        self.state_mapper_source_target = self.get_state_mapper(
+            config["EnvSource"],
+            config["EnvTarget"],
+            config[self.__class__.__name__]["model"],
+        )
+        self.state_mapper_target_source = self.get_state_mapper(
+            config["EnvTarget"],
+            config["EnvSource"],
+            config[self.__class__.__name__]["model"],
+        )
+
+        self.discriminator_source = DiscriminatorSource(config, **kwargs)
+        self.discriminator_target = DiscriminatorTarget(config, **kwargs)
 
     @classmethod
     def get_relevant_config(cls, config):
         return {
             **super(StateMapper, cls).get_relevant_config(config),
-            **Discriminator.get_relevant_config(config),
+            **DiscriminatorSource.get_relevant_config(config),
+            **DiscriminatorTarget.get_relevant_config(config),
         }
 
-    def get_state_mapper(self, env_from_config, env_to_config):
+    def get_state_mapper(self, env_from_config, env_to_config, model_config):
         env_from = EnvironmentRobotTask(env_from_config["env_config"])
         env_to = EnvironmentRobotTask(env_to_config["env_config"])
 
         state_mapper = create_network(
             in_dim=env_from.state_space["robot"]["arm"]["joint_positions"].shape[-1],
             out_dim=env_to.state_space["robot"]["arm"]["joint_positions"].shape[-1],
-            **self.config[self.__class__.__name__]["model"],
+            **model_config,
         )
 
         return state_mapper
-
-    @cached_property
-    def state_mapper_source_target(self):
-        return self.get_state_mapper(self.config["EnvSource"], self.config["EnvTarget"])
-
-    @cached_property
-    def state_mapper_target_source(self):
-        return self.get_state_mapper(self.config["EnvTarget"], self.config["EnvSource"])
 
     def get_state_dict(self):
         state_dict = {
@@ -83,41 +104,31 @@ class StateMapper(LitStage):
             )
 
     @cached_property
-    def dht_models(self):
-        env_source = EnvironmentRobotTask(self.config["EnvSource"]["env_config"])
-        env_target = EnvironmentRobotTask(self.config["EnvTarget"]["env_config"])
-
-        return deepcopy(env_source.robot.dht_model), deepcopy(
-            env_target.robot.dht_model
-        )
+    def env_source(self):
+        env = EnvironmentRobotTask(self.config["EnvSource"]["env_config"])
+        env_wrapper = EnvWrapper(env)
+        return env_wrapper
 
     @cached_property
-    def discriminator_source(self):
-        return deepcopy(DiscriminatorSource(self.config).discriminator)
-
-    @cached_property
-    def discriminator_target(self):
-        return deepcopy(DiscriminatorTarget(self.config).discriminator)
+    def env_target(self):
+        env = EnvironmentRobotTask(self.config["EnvTarget"]["env_config"])
+        env_wrapper = EnvWrapper(env)
+        return env_wrapper
 
     @cached_property
     def loss_function(self):
-        env_source = EnvironmentRobotTask(self.config["EnvSource"]["env_config"])
-        env_target = EnvironmentRobotTask(self.config["EnvTarget"]["env_config"])
-
         dummy_state_source = torch.zeros(
-            (1, env_source.state_space["robot"]["arm"]["joint_positions"].shape[-1])
+            (1, self.env_source.state_space["robot"]["arm"]["joint_positions"].shape[-1])
         )
         dummy_state_target = torch.zeros(
-            (1, env_target.state_space["robot"]["arm"]["joint_positions"].shape[-1])
+            (1, self.env_target.state_space["robot"]["arm"]["joint_positions"].shape[-1])
         )
 
-        dht_model_source, dht_model_target = self.dht_models
+        self.env_source.dht_model.to(dummy_state_source)
+        self.env_target.dht_model.to(dummy_state_target)
 
-        dht_model_source.to(dummy_state_source)
-        dht_model_target.to(dummy_state_target)
-
-        link_positions_source = dht_model_source(dummy_state_source)[0, :, :3, -1]
-        link_positions_target = dht_model_target(dummy_state_target)[0, :, :3, -1]
+        link_positions_source = self.env_source.dht_model(dummy_state_source)[0, :, :3, -1]
+        link_positions_target = self.env_target.dht_model(dummy_state_target)[0, :, :3, -1]
 
         weight_matrix_p, weight_matrix_o = get_weight_matrices(
             link_positions_source,
@@ -127,17 +138,17 @@ class StateMapper(LitStage):
         loss_fn_ = KinematicChainLoss(weight_matrix_p, weight_matrix_o)
 
         def loss_fn(states_source, states_target):
-            env_source.robot.state2angle.to(states_source)
-            env_target.robot.state2angle.to(states_target)
+            self.env_source.state2angle.to(states_source)
+            self.env_target.state2angle.to(states_target)
 
-            angles_source = env_source.robot.state2angle(states_source)
-            angles_target = env_target.robot.state2angle(states_target)
+            angles_source = self.env_source.state2angle(states_source)
+            angles_target = self.env_target.state2angle(states_target)
 
-            dht_model_source.to(angles_source)
-            dht_model_target.to(angles_target)
+            self.env_source.dht_model.to(angles_source)
+            self.env_target.dht_model.to(angles_target)
 
-            link_poses_source = dht_model_source(angles_source)
-            link_poses_target = dht_model_target(angles_target)
+            link_poses_source = self.env_source.dht_model(angles_source)
+            link_poses_target = self.env_target.dht_model(angles_target)
 
             loss_fn_.to(link_poses_source)
 
@@ -148,18 +159,24 @@ class StateMapper(LitStage):
         return loss_fn
 
     def configure_optimizers(self):
-        parameters = [self.state_mapper_source_target.parameters()]
-
-        if self.config[self.__class__.__name__]["train"].get(
-            "cycle_consistency_factor", 0.0
-        ):
-            parameters.append(self.state_mapper_target_source.parameters())
-
-        optimizer_state_mapper = torch.optim.AdamW(
-            itertools.chain(*parameters),
+        optimizer_state_mapper_source_target = torch.optim.AdamW(
+            self.state_mapper_source_target.parameters(),
             lr=self.config[self.__class__.__name__]["train"].get("lr", 3e-4),
         )
-        return optimizer_state_mapper
+        optimizer_state_mapper_target_source = torch.optim.AdamW(
+            self.state_mapper_target_source.parameters(),
+            lr=self.config[self.__class__.__name__]["train"].get("lr", 3e-4),
+        )
+
+        optimizers = [
+            optimizer_state_mapper_source_target,
+            optimizer_state_mapper_target_source,
+        ]
+
+        optimizers.append(self.discriminator_source.configure_optimizers())
+        optimizers.append(self.discriminator_target.configure_optimizers())
+
+        return optimizers
 
     def train_dataloader(self):
         dataloaders = {}
@@ -222,9 +239,13 @@ class StateMapper(LitStage):
         ):
             # discriminator loss
             discriminator_Y.to(states_Y)
-            outputs = discriminator_Y(states_Y)
-            dist = torch.sum((outputs - self.discriminator_Y.c) ** 2, dim=1)
-            loss_discriminator = torch.mean(relu(dist - self.discriminator_Y.radius))
+            output_discriminator_Y = discriminator_Y(states_Y)
+
+            loss_discriminator = torch.nn.functional.binary_cross_entropy(
+                output_discriminator_Y,
+                torch.ones((states_Y.shape[0], 1), device=states_Y.device),
+            )
+
             loss += (
                 self.config[self.__class__.__name__]["train"]["discriminator_factor"]
                 * loss_discriminator
@@ -247,19 +268,13 @@ class StateMapper(LitStage):
         return loss
 
     def step(self, batch, batch_idx, prefix=""):
+
         loss_source_target = self.loss(
             batch["source"],
             self.state_mapper_source_target,
             self.loss_function,
             self.discriminator_target,
             self.state_mapper_target_source,
-        )
-
-        self.log(
-            f"{prefix}loss_source_target_{self.log_id}",
-            loss_source_target,
-            on_step=False,
-            on_epoch=True,
         )
 
         loss_target_source = self.loss(
@@ -270,18 +285,14 @@ class StateMapper(LitStage):
             self.state_mapper_source_target,
         )
 
-        self.log(
-            f"{prefix}loss_target_source_{self.log_id}",
-            loss_target_source,
-            on_step=False,
-            on_epoch=True,
-        )
-
         loss = loss_source_target + loss_target_source
 
-        self.log(
-            f"{prefix}loss_{self.log_id}",
-            loss,
+        self.log_dict(
+            {
+                f"{prefix}loss_source_target_{self.log_id}": loss_source_target,
+                f"{prefix}loss_target_source_{self.log_id}": loss_target_source,
+                f"{prefix}loss_{self.log_id}": loss,
+            },
             on_step=False,
             on_epoch=True,
         )
@@ -294,7 +305,57 @@ class StateMapper(LitStage):
     """
 
     def training_step(self, batch, batch_idx):
+        (
+            optimizer_state_mapper_source_target,
+            optimizer_state_mapper_target_source,
+            optimizer_discriminator_source,
+            optimizer_discriminator_target,
+        ) = self.optimizers()
+
         loss = self.step(batch, batch_idx, "train_")
+
+        optimizer_state_mapper_source_target.zero_grad()
+        optimizer_state_mapper_target_source.zero_grad()
+        self.manual_backward(loss)
+        optimizer_state_mapper_source_target.step()
+        optimizer_state_mapper_target_source.step()
+
+        trajectories_states_source, _ = batch["source"]
+        states_source = trajectories_states_source.reshape(
+            -1, trajectories_states_source.shape[-1]
+        )
+
+        trajectories_states_target, _ = batch["target"]
+        states_target = trajectories_states_target.reshape(
+            -1, trajectories_states_target.shape[-1]
+        )
+
+        states_target_ = self.state_mapper_source_target(states_source)
+        states_source_ = self.state_mapper_target_source(states_target)
+
+        loss_discriminator_source = self.discriminator_source.loss(
+            {"true": states_source, "fake": states_source_}
+        )
+        loss_discriminator_target = self.discriminator_target.loss(
+            {"true": states_target, "fake": states_target_}
+        )
+
+        self.log_dict(
+            {
+                f"train_loss_{self.discriminator_source.log_id}": loss_discriminator_source,
+                f"train_loss_{self.discriminator_target.log_id}": loss_discriminator_target,
+            },
+            on_step=False,
+            on_epoch=True,
+        )
+
+        loss_discriminator = loss_discriminator_source + loss_discriminator_target
+
+        optimizer_discriminator_source.zero_grad()
+        optimizer_discriminator_target.zero_grad()
+        self.manual_backward(loss_discriminator)
+        optimizer_discriminator_source.step()
+        optimizer_discriminator_target.step()
 
         return loss
 
@@ -304,7 +365,7 @@ class StateMapper(LitStage):
     """
 
     def validation_step(self, batch, batch_idx):
-        loss = self.step(batch, batch_idx, "val_")
+        loss = self.step(batch, batch_idx, "validation_")
 
         return loss
 
