@@ -1,4 +1,4 @@
-# CRoKoDiLe :crocodile::robot:
+# CRoKoDiLe :crocodile:
 ## <ins>C</ins>ross-<ins>Ro</ins>bot <ins>K</ins>n<ins>o</ins>wledge Transfer in <ins>D</ins>eep Re<ins>i</ins>nforcement <ins>Le</ins>arning
 
 This project addresses the challenge of transferring knowledge between two different industrial robots, i.e. different kinematics.
