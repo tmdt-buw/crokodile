@@ -3,7 +3,6 @@ import logging
 import os
 import sys
 from copy import deepcopy
-from copy import deepcopy
 from pathlib import Path
 
 import torch

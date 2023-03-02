@@ -10,8 +10,6 @@ from copy import deepcopy
 import pybullet as p
 import torch
 
-from copy import deepcopy
-
 from environments import get_env
 from environments.environments_robot_task.robots import get_robot
 from environments.experts import get_expert
