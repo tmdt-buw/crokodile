@@ -1,3 +1,10 @@
+import sys
+from pathlib import Path
+
+import pybullet as p
+import torch
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 from copy import deepcopy
 
 import pybullet as p
@@ -21,7 +28,7 @@ env_A = get_env(
     {
         "name": "robot-task",
         "robot_config": {"name": "panda", "scale": 0.1, "sim_time": 0.1},
-        "task_config": {"name": "pick_place"},
+        "task_config": {"name": "pick_place", "single_shot_gripper": True},
         "bullet_client": p,
     }
 )

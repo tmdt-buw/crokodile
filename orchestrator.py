@@ -10,7 +10,6 @@ from environments.environment_robot_task import EnvironmentRobotTask
 
 class Orchestrator:
     def __init__(self, env_config, number_processes, number_threads=1):
-
         self.pipes = {}
         self.locks = {}
 
@@ -18,7 +17,6 @@ class Orchestrator:
         self.number_threads = number_threads
 
         for iprocess in range(number_processes):
-
             pipes_process = []
             locks_process = []
 
@@ -48,7 +46,6 @@ class Orchestrator:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-
         for env_id in list(self.pipes.keys()):
             pipe = self.pipes.pop(env_id)
             lock = self.locks.pop(env_id)
@@ -60,9 +57,7 @@ class Orchestrator:
                 pass
 
     def run_process(self, env_config, pipes, locks):
-
         if len(pipes) > 1:
-
             threads = []
 
             for pipe, lock in zip(pipes, locks):
@@ -81,9 +76,7 @@ class Orchestrator:
             self.run(env_config, pipes.pop(), locks.pop())
 
     def run(self, env_config, pipe, lock):
-
         with lock:
-
             env = EnvironmentRobotTask(env_config)
 
             while True:
@@ -120,7 +113,6 @@ class Orchestrator:
         return self.receive()
 
     def send(self, actions=()):
-
         for env_id, func, params in actions:
             try:
                 self.pipes[env_id].send([func, params])
@@ -165,7 +157,6 @@ class Orchestrator:
 
         # send reset commands
         for env_id, pipe in self.pipes.items():
-
             while True:
                 response = pipe.recv()
                 func, data = response

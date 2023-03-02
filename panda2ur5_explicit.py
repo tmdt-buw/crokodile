@@ -8,7 +8,6 @@ from main import Apprentice
 from environments.environment_robot_task import Callbacks
 
 if __name__ == "__main__":
-
     config_model = {
         "fcnet_hiddens": [180] * 5,
         "fcnet_activation": "relu",

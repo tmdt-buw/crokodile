@@ -23,7 +23,6 @@ class TaskReach(Task):
         parameter_distributions=None,
         **kwargs
     ):
-
         super(TaskReach, self).__init__(
             bullet_client=bullet_client,
             parameter_distributions=parameter_distributions,
@@ -125,7 +124,6 @@ class TaskReach(Task):
         state_robot=None,
         force=False,
     ):
-
         super(TaskReach, self).reset()
 
         if desired_goal is None:

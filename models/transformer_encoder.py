@@ -95,7 +95,6 @@ class PositionalEncoding(nn.Module):
 
 
 if __name__ == "__main__":
-
     model = Seq2SeqTransformerEncoder(6, 7)
 
     src = torch.rand(10, 1, 6)  # NCL

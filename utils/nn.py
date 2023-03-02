@@ -130,6 +130,9 @@ class NeuralNetwork(nn.Module):
         elif name == "linear":
             module = nn.Linear(current_dim, params)
             current_dim = params
+        elif name == "sigmoid":
+            assert params is None, "No argument for Sigmoid please"
+            module = nn.Sigmoid()
         elif name == "relu":
             assert params is None, "No argument for ReLU please"
             module = nn.ReLU()
@@ -162,7 +165,6 @@ class NeuralNetwork(nn.Module):
         return x
 
     def get_weights(self):
-
         weights = []
 
         for operator in self.operators:

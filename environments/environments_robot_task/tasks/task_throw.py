@@ -22,7 +22,6 @@ class TaskThrow(Task):
         parameter_distributions=None,
         **kwargs
     ):
-
         super(TaskThrow, self).__init__(
             bullet_client=bullet_client,
             parameter_distributions=parameter_distributions,
@@ -101,7 +100,6 @@ class TaskThrow(Task):
         return reward
 
     def reset(self, desired_state=None, robot=None, state_robot=None):
-
         super(TaskThrow, self).reset()
 
         # attach object to tcp
@@ -154,7 +152,6 @@ class TaskThrow(Task):
                 contact_points = False
 
         while contact_points:
-
             angle = np.random.uniform(0, 2 * np.pi)
 
             target_position = np.empty(3)

@@ -44,7 +44,6 @@ class Robot:
         bullet_client=None,
         **kwargs,
     ):
-
         if bullet_client is None:
             bullet_client = bc.BulletClient()
 
@@ -185,7 +184,6 @@ class Robot:
     def calculate_inverse_kinematics(
         self, tcp_position, tcp_orientation, initial_pose=None, iters=1000
     ):
-
         return None
         # conf = np.zeros_like(self.ik_model.getConfig())
         #
@@ -296,7 +294,6 @@ class Robot:
 
         # domain randomization
         for parameter, distribution in self.parameter_distributions.items():
-
             std = distribution.get("std", 0)
 
             for link_id, link in self.links.items():
@@ -396,7 +393,6 @@ class Robot:
         assert len(indicator_colors) == 3
 
         for dim, rgbaColor in enumerate(indicator_colors):
-
             if indicators == p.GEOM_BOX:
                 linkVisualShapeIndices.append(
                     p.createVisualShape(

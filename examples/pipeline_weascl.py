@@ -8,13 +8,19 @@ import logging
 import numpy as np
 
 from mapper import Mapper
-from world_models.discriminator import Discriminator
+from world_models.discriminator import DiscriminatorSource
 from world_models.transition import TransitionModel
 
 logging.getLogger().setLevel(logging.INFO)
 
 data_file_A = "panda_5_10_10.pt"
 data_file_B = "ur5_5_10_10.pt"
+
+config_task = {
+    "name": "reach",
+    "max_steps": 25,
+    "accuracy": 0.03,
+}
 
 
 def transition_model_main():
@@ -42,18 +48,25 @@ def transition_model_main():
 
 def discriminator_main():
     config = {
-        "Discriminator": {
-            "data": data_file_B,
+        "EnvSource": {
+            "env": "robot-task",
+            "env_config": {
+                "robot_config": {
+                    "name": "panda",
+                    "sim_time": 0.1,
+                    "scale": 0.1,
+                },
+                "task_config": config_task,
+                "disable_env_checking": True,
+            },
+        },
+        "DiscriminatorSource": {
+            "data": data_file_A,
             "model": {
-                "objective": "soft-boundary",
-                "eps": 0.01,
-                "init_center_samples": 100,
-                "nu": 1e-3,
-                "out_dim": 4,
-                "network_width": 256,
+                "network_width": 1024,
                 "network_depth": 4,
-                "dropout": 0.2,
-                "warmup_epochs": 10,
+                "dropout": 0.1,
+                "out_activation": "sigmoid",
             },
             "train": {
                 "max_epochs": 1,
@@ -65,13 +78,37 @@ def discriminator_main():
         },
     }
 
-    Discriminator(config)
+    DiscriminatorSource(config)
 
 
 def state_mapper_main():
     from mapper.mapper_state import StateMapper
 
     config = {
+        "EnvSource": {
+            "env": "robot-task",
+            "env_config": {
+                "robot_config": {
+                    "name": "panda",
+                    "sim_time": 0.1,
+                    "scale": 0.1,
+                },
+                "task_config": config_task,
+                "disable_env_checking": True,
+            },
+        },
+        "EnvTarget": {
+            "env": "robot-task",
+            "env_config": {
+                "robot_config": {
+                    "name": "ur5",
+                    "sim_time": 0.1,
+                    "scale": 1.0,
+                },
+                "task_config": config_task,
+                "disable_env_checking": True,
+            },
+        },
         "StateMapper": {
             "data": {"data_file_X": data_file_A, "data_file_Y": data_file_B},
             "model": {
@@ -85,27 +122,32 @@ def state_mapper_main():
                 "max_epochs": 1,
                 "batch_size": 512,
                 "lr": 1e-3,
+                "cycle_consistency_factor": 0.1,
+                "discriminator_factor": 0.25,
             },
         },
-        "Discriminator": {
-            "data": data_file_B,
+        "DiscriminatorSource": {
+            "data": data_file_A,
             "model": {
-                "objective": "soft-boundary",
-                "eps": 0.01,
-                "init_center_samples": 100,
-                "nu": 1e-3,
-                "out_dim": 4,
-                "network_width": 256,
+                "network_width": 1024,
                 "network_depth": 4,
-                "dropout": 0.2,
-                "warmup_epochs": 10,
+                "dropout": 0.1,
+                "out_activation": "sigmoid",
             },
             "train": {
-                "max_epochs": 1,
-                "batch_size": 512,
                 "lr": 1e-3,
-                "scheduler_epoch": 150,
-                "lr_decrease": 0.1,
+            },
+        },
+        "DiscriminatorTarget": {
+            "data": data_file_B,
+            "model": {
+                "network_width": 1024,
+                "network_depth": 4,
+                "dropout": 0.1,
+                "out_activation": "sigmoid",
+            },
+            "train": {
+                "lr": 1e-3,
             },
         },
     }
@@ -121,7 +163,7 @@ def trajectory_mapper_main():
 
     config = {
         "EnvSource": {
-            "env": "robot_task",
+            "env": "robot-task",
             "env_config": {
                 "robot_config": {
                     "name": "panda",
@@ -133,7 +175,7 @@ def trajectory_mapper_main():
             },
         },
         "EnvTarget": {
-            "env": "robot_task",
+            "env": "robot-task",
             "env_config": {
                 "robot_config": {
                     "name": "ur5",
@@ -145,7 +187,6 @@ def trajectory_mapper_main():
             },
         },
         "StateMapper": {
-            "data": {"data_file_X": data_file_A, "data_file_Y": data_file_B},
             "model": {
                 "network_width": 1024,
                 "network_depth": 4,
@@ -228,5 +269,5 @@ def trajectory_mapper_main():
 if __name__ == "__main__":
     # transition_model_main()
     # discriminator_main()
-    # state_mapper_main()
-    trajectory_mapper_main()
+    state_mapper_main()
+    # trajectory_mapper_main()

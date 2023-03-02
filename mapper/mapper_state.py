@@ -1,3 +1,5 @@
+import itertools
+import logging
 import os
 import sys
 from copy import deepcopy
@@ -8,186 +10,308 @@ from pytorch_lightning.trainer.supporters import CombinedLoader
 from torch.nn.functional import relu
 
 from models.dht import get_dht_model
-from world_models.discriminator import Discriminator
+from world_models.discriminator import DiscriminatorSource, DiscriminatorTarget
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from functools import cached_property
 
 from config import data_folder
+from environments.environment_robot_task import EnvironmentRobotTask
 from stage import LitStage
 from utils.nn import KinematicChainLoss, create_network, get_weight_matrices
 
 
+class EnvWrapper:
+    def __init__(self, env):
+        self.state_space = deepcopy(env.state_space)
+        self.action_space = deepcopy(env.action_space)
+        self.dht_model = deepcopy(env.robot.dht_model)
+        self.state2angle = deepcopy(env.robot.state2angle)
+        self.angle2state = deepcopy(env.robot.angle2state)
+
+
 class StateMapper(LitStage):
     def __init__(self, config, **kwargs):
+        self.automatic_optimization = False
+
         super(StateMapper, self).__init__(config, **kwargs)
+
+    def init_models(self, config, **kwargs):
+        self.automatic_optimization = False
+
+        self.state_mapper_source_target = self.get_state_mapper(
+            config["EnvSource"],
+            config["EnvTarget"],
+            config[self.__class__.__name__]["model"],
+        )
+        self.state_mapper_target_source = self.get_state_mapper(
+            config["EnvTarget"],
+            config["EnvSource"],
+            config[self.__class__.__name__]["model"],
+        )
+
+        self.discriminator_source = DiscriminatorSource(config, **kwargs)
+        self.discriminator_target = DiscriminatorTarget(config, **kwargs)
 
     @classmethod
     def get_relevant_config(cls, config):
         return {
             **super(StateMapper, cls).get_relevant_config(config),
-            **Discriminator.get_relevant_config(config),
+            **DiscriminatorSource.get_relevant_config(config),
+            **DiscriminatorTarget.get_relevant_config(config),
         }
 
-    @cached_property
-    def state_mapper(self):
-        data_path_X = os.path.join(
-            data_folder,
-            self.config[self.__class__.__name__]["data"]["data_file_X"],
-        )
-        data_X = torch.load(data_path_X)
+    def get_state_mapper(self, env_from_config, env_to_config, model_config):
+        env_from = EnvironmentRobotTask(env_from_config["env_config"])
+        env_to = EnvironmentRobotTask(env_to_config["env_config"])
 
-        data_path_Y = os.path.join(
-            data_folder,
-            self.config[self.__class__.__name__]["data"]["data_file_Y"],
-        )
-        data_Y = torch.load(data_path_Y)
-
-        state_mapper_XY = create_network(
-            in_dim=data_X["trajectories_states_train"].shape[-1],
-            out_dim=data_Y["trajectories_states_train"].shape[-1],
-            **self.config[self.__class__.__name__]["model"],
+        state_mapper = create_network(
+            in_dim=env_from.state_space["robot"]["arm"]["joint_positions"].shape[-1],
+            out_dim=env_to.state_space["robot"]["arm"]["joint_positions"].shape[-1],
+            **model_config,
         )
 
-        return state_mapper_XY
+        return state_mapper
 
     def get_state_dict(self):
-        return self.state_mapper.state_dict()
+        state_dict = {
+            "state_mapper_source_target": self.state_mapper_source_target.state_dict()
+        }
+
+        if self.config[self.__class__.__name__]["train"].get(
+            "cycle_consistency_factor", 0.0
+        ):
+            state_dict[
+                "state_mapper_target_source"
+            ] = self.state_mapper_target_source.state_dict()
+
+        return state_dict
 
     def set_state_dict(self, state_dict):
-        self.state_mapper.load_state_dict(state_dict)
+        self.state_mapper_source_target.load_state_dict(
+            state_dict["state_mapper_source_target"]
+        )
+
+        if "state_mapper_target_source" in state_dict:
+            self.state_mapper_target_source.load_state_dict(
+                state_dict["state_mapper_target_source"]
+            )
+        elif self.config[self.__class__.__name__]["train"].get(
+            "cycle_consistency_factor", 0.0
+        ):
+            logging.warning(
+                "No state dict for state_mapper_target_source found, but cycle_consistency_factor != 0."
+            )
 
     @cached_property
-    def dht_models(self):
-        data_path_X = os.path.join(
-            data_folder,
-            self.config[self.__class__.__name__]["data"]["data_file_X"],
-        )
-        data_X = torch.load(data_path_X)
-
-        data_path_Y = os.path.join(
-            data_folder,
-            self.config[self.__class__.__name__]["data"]["data_file_Y"],
-        )
-        data_Y = torch.load(data_path_Y)
-
-        dht_model_X = get_dht_model(data_X["dht_params"], data_X["joint_limits"])
-        dht_model_Y = get_dht_model(data_Y["dht_params"], data_Y["joint_limits"])
-
-        return dht_model_X, dht_model_Y
+    def env_source(self):
+        env = EnvironmentRobotTask(self.config["EnvSource"]["env_config"])
+        env_wrapper = EnvWrapper(env)
+        return env_wrapper
 
     @cached_property
-    def discriminator(self):
-        return deepcopy(Discriminator(self.config).discriminator)
+    def env_target(self):
+        env = EnvironmentRobotTask(self.config["EnvTarget"]["env_config"])
+        env_wrapper = EnvWrapper(env)
+        return env_wrapper
 
     @cached_property
     def loss_function(self):
-        data_path_A = os.path.join(
-            data_folder,
-            self.config[self.__class__.__name__]["data"]["data_file_X"],
+        dummy_state_source = torch.zeros(
+            (
+                1,
+                self.env_source.state_space["robot"]["arm"]["joint_positions"].shape[
+                    -1
+                ],
+            )
         )
-        data_A = torch.load(data_path_A)
-
-        data_path_B = os.path.join(
-            data_folder,
-            self.config[self.__class__.__name__]["data"]["data_file_Y"],
+        dummy_state_target = torch.zeros(
+            (
+                1,
+                self.env_target.state_space["robot"]["arm"]["joint_positions"].shape[
+                    -1
+                ],
+            )
         )
-        data_B = torch.load(data_path_B)
 
-        dummy_state_A = torch.zeros((1, data_A["trajectories_states_train"].shape[-1]))
-        dummy_state_B = torch.zeros((1, data_B["trajectories_states_train"].shape[-1]))
+        self.env_source.dht_model.to(dummy_state_source)
+        self.env_target.dht_model.to(dummy_state_target)
 
-        self.dht_models[0].to(dummy_state_A)
-        self.dht_models[1].to(dummy_state_B)
+        link_positions_source = self.env_source.dht_model(dummy_state_source)[
+            0, :, :3, -1
+        ]
+        link_positions_target = self.env_target.dht_model(dummy_state_target)[
+            0, :, :3, -1
+        ]
 
-        link_positions_A = self.dht_models[0](dummy_state_A)[0, :, :3, -1]
-        link_positions_B = self.dht_models[1](dummy_state_B)[0, :, :3, -1]
-
-        weight_matrix_AB_p, weight_matrix_AB_o = get_weight_matrices(
-            link_positions_A,
-            link_positions_B,
+        weight_matrix_p, weight_matrix_o = get_weight_matrices(
+            link_positions_source,
+            link_positions_target,
             self.config[self.__class__.__name__]["model"]["weight_matrix_exponent_p"],
         )
-        loss_fn_kinematics_AB = KinematicChainLoss(
-            weight_matrix_AB_p, weight_matrix_AB_o, verbose_output=True
-        )
+        loss_fn_ = KinematicChainLoss(weight_matrix_p, weight_matrix_o)
 
-        return loss_fn_kinematics_AB
+        def loss_fn(states_source, states_target):
+            self.env_source.state2angle.to(states_source)
+            self.env_target.state2angle.to(states_target)
+
+            angles_source = self.env_source.state2angle(states_source)
+            angles_target = self.env_target.state2angle(states_target)
+
+            self.env_source.dht_model.to(angles_source)
+            self.env_target.dht_model.to(angles_target)
+
+            link_poses_source = self.env_source.dht_model(angles_source)
+            link_poses_target = self.env_target.dht_model(angles_target)
+
+            loss_fn_.to(link_poses_source)
+
+            loss = loss_fn_(link_poses_source, link_poses_target)
+
+            return loss
+
+        return loss_fn
 
     def configure_optimizers(self):
-        optimizer_state_mapper = torch.optim.AdamW(
-            self.state_mapper.parameters(),
+        optimizer_state_mapper_source_target = torch.optim.AdamW(
+            self.state_mapper_source_target.parameters(),
             lr=self.config[self.__class__.__name__]["train"].get("lr", 3e-4),
         )
-        return optimizer_state_mapper
+        optimizer_state_mapper_target_source = torch.optim.AdamW(
+            self.state_mapper_target_source.parameters(),
+            lr=self.config[self.__class__.__name__]["train"].get("lr", 3e-4),
+        )
+
+        optimizers = [
+            optimizer_state_mapper_source_target,
+            optimizer_state_mapper_target_source,
+        ]
+
+        optimizers.append(self.discriminator_source.configure_optimizers())
+        optimizers.append(self.discriminator_target.configure_optimizers())
+
+        return optimizers
 
     def train_dataloader(self):
-        dataloader_train_A = self.get_dataloader(
-            self.config[self.__class__.__name__]["data"]["data_file_X"],
-            "train",
+        dataloaders = {}
+
+        dataloaders["source"] = self.get_dataloader(
+            self.config[self.__class__.__name__]["data"]["data_file_X"], "train"
         )
-        dataloader_train_B = self.get_dataloader(
-            self.config[self.__class__.__name__]["data"]["data_file_Y"],
-            "train",
-        )
-        return CombinedLoader({"A": dataloader_train_A, "B": dataloader_train_B})
+
+        if self.config[self.__class__.__name__]["train"].get(
+            "cycle_consistency_factor", 0.0
+        ):
+            dataloaders["target"] = self.get_dataloader(
+                self.config[self.__class__.__name__]["data"]["data_file_Y"], "train"
+            )
+        return CombinedLoader(dataloaders)
 
     def val_dataloader(self):
-        dataloader_validation_A = self.get_dataloader(
-            self.config[self.__class__.__name__]["data"]["data_file_X"],
-            "test",
-            False,
-        )
-        dataloader_validation_B = self.get_dataloader(
-            self.config[self.__class__.__name__]["data"]["data_file_Y"],
-            "test",
-            False,
-        )
-        return CombinedLoader(
-            {"A": dataloader_validation_A, "B": dataloader_validation_B}
+        dataloaders = {}
+
+        dataloaders["source"] = self.get_dataloader(
+            self.config[self.__class__.__name__]["data"]["data_file_X"], "test", False
         )
 
-    def forward(self, states_A):
-        states_B = self.state_mapper(states_A)
-        return states_B
+        if self.config[self.__class__.__name__]["train"].get(
+            "cycle_consistency_factor", 0.0
+        ):
+            dataloaders["target"] = self.get_dataloader(
+                self.config[self.__class__.__name__]["data"]["data_file_Y"],
+                "test",
+                False,
+            )
+        return CombinedLoader(dataloaders)
 
-    def loss(self, batch):
-        trajectories_states_X, _ = batch
+    def forward(self, states_source):
+        states_target = self.state_mapper(states_source)
+        return states_target
+
+    def loss(
+        self,
+        batch_X,
+        state_mapper_XY,
+        loss_function,
+        discriminator_Y=None,
+        state_mapper_YX=None,
+    ):
+        trajectories_states_X, _ = batch_X
 
         states_X = trajectories_states_X.reshape(-1, trajectories_states_X.shape[-1])
 
-        self.state_mapper.to(states_X)
+        state_mapper_XY.to(states_X)
 
-        states_Y = self.state_mapper(states_X)
+        states_Y = state_mapper_XY(states_X)
 
-        self.dht_models[0].to(states_X)
-        self.dht_models[1].to(states_Y)
+        loss_state_mapper_XY = loss_function(states_X, states_Y)
 
-        link_poses_X = self.dht_models[0](states_X)
-        link_poses_Y = self.dht_models[1](states_Y)
+        loss = loss_state_mapper_XY
 
-        self.loss_function.to(link_poses_X)
+        if discriminator_Y and self.config[self.__class__.__name__]["train"].get(
+            "discriminator_factor", 0.0
+        ):
+            # discriminator loss
+            discriminator_Y.to(states_Y)
+            output_discriminator_Y = discriminator_Y(states_Y)
 
-        (
-            loss_state_mapper_XY,
-            loss_state_mapper_XY_p,
-            loss_state_mapper_XY_o,
-        ) = self.loss_function(link_poses_X, link_poses_Y)
-        # discriminator loss
-        self.discriminator.to(states_Y)
-        outputs = self.discriminator(states_Y)
-        dist = torch.sum((outputs - self.discriminator.c) ** 2, dim=1)
-        loss_disc = torch.mean(relu(dist - self.discriminator.radius))
+            loss_discriminator = torch.nn.functional.binary_cross_entropy(
+                output_discriminator_Y,
+                torch.ones((states_Y.shape[0], 1), device=states_Y.device),
+            )
 
-        loss_state_mapper_XY_disc = loss_state_mapper_XY + loss_disc
+            loss += (
+                self.config[self.__class__.__name__]["train"]["discriminator_factor"]
+                * loss_discriminator
+            )
 
-        return (
-            loss_state_mapper_XY,
-            loss_state_mapper_XY_disc,
-            loss_state_mapper_XY_p,
-            loss_state_mapper_XY_o,
+        if state_mapper_YX and self.config[self.__class__.__name__]["train"].get(
+            "cycle_consistency_factor", 0.0
+        ):
+            # cycle consistency loss
+            states_X_ = state_mapper_YX(states_Y)
+            loss_cycle_consistency = torch.nn.functional.mse_loss(states_X, states_X_)
+
+            loss += (
+                self.config[self.__class__.__name__]["train"][
+                    "cycle_consistency_factor"
+                ]
+                * loss_cycle_consistency
+            )
+
+        return loss
+
+    def step(self, batch, batch_idx, prefix=""):
+        loss_source_target = self.loss(
+            batch["source"],
+            self.state_mapper_source_target,
+            self.loss_function,
+            self.discriminator_target,
+            self.state_mapper_target_source,
         )
+
+        loss_target_source = self.loss(
+            batch["target"],
+            self.state_mapper_target_source,
+            lambda t, s: self.loss_function(s, t),
+            self.discriminator_source,
+            self.state_mapper_source_target,
+        )
+
+        loss = loss_source_target + loss_target_source
+
+        self.log_dict(
+            {
+                f"{prefix}loss_source_target_{self.log_id}": loss_source_target,
+                f"{prefix}loss_target_source_{self.log_id}": loss_target_source,
+                f"{prefix}loss_{self.log_id}": loss,
+            },
+            on_step=False,
+            on_epoch=True,
+        )
+
+        return loss
 
     """
         Perform training step. Customized behavior to log different loss compoents.
@@ -196,36 +320,58 @@ class StateMapper(LitStage):
 
     def training_step(self, batch, batch_idx):
         (
-            loss_state_mapper,
-            loss_state_mapper_disc,
-            loss_state_mapper_p,
-            loss_state_mapper_o,
-        ) = self.loss(batch["A"])
-        self.log(
-            f"train_loss_{self.log_id}",
-            loss_state_mapper,
+            optimizer_state_mapper_source_target,
+            optimizer_state_mapper_target_source,
+            optimizer_discriminator_source,
+            optimizer_discriminator_target,
+        ) = self.optimizers()
+
+        loss = self.step(batch, batch_idx, "train_")
+
+        optimizer_state_mapper_source_target.zero_grad()
+        optimizer_state_mapper_target_source.zero_grad()
+        self.manual_backward(loss)
+        optimizer_state_mapper_source_target.step()
+        optimizer_state_mapper_target_source.step()
+
+        trajectories_states_source, _ = batch["source"]
+        states_source = trajectories_states_source.reshape(
+            -1, trajectories_states_source.shape[-1]
+        )
+
+        trajectories_states_target, _ = batch["target"]
+        states_target = trajectories_states_target.reshape(
+            -1, trajectories_states_target.shape[-1]
+        )
+
+        states_target_ = self.state_mapper_source_target(states_source)
+        states_source_ = self.state_mapper_target_source(states_target)
+
+        loss_discriminator_source = self.discriminator_source.loss(
+            {"true": states_source, "fake": states_source_}
+        )
+        loss_discriminator_target = self.discriminator_target.loss(
+            {"true": states_target, "fake": states_target_}
+        )
+
+        self.log_dict(
+            {
+                f"train_loss_{self.discriminator_source.log_id}": loss_discriminator_source,
+                f"train_loss_{self.discriminator_target.log_id}": loss_discriminator_target,
+            },
             on_step=False,
             on_epoch=True,
         )
-        self.log(
-            f"train_loss_{self.log_id}_disc",
-            loss_state_mapper_disc,
-            on_step=False,
-            on_epoch=True,
-        )
-        self.log(
-            f"train_loss_{self.log_id}_p",
-            loss_state_mapper_p,
-            on_step=False,
-            on_epoch=True,
-        )
-        self.log(
-            f"train_loss_{self.log_id}_o",
-            loss_state_mapper_o,
-            on_step=False,
-            on_epoch=True,
-        )
-        return loss_state_mapper_disc
+
+        loss_discriminator = loss_discriminator_source + loss_discriminator_target
+
+        optimizer_discriminator_source.zero_grad()
+        optimizer_discriminator_target.zero_grad()
+        self.manual_backward(loss_discriminator)
+        optimizer_discriminator_source.step()
+        optimizer_discriminator_target.step()
+
+        return loss
 
     """
         Perform validation step. Customized behavior to log different loss compoents.
@@ -233,37 +379,9 @@ class StateMapper(LitStage):
     """
 
     def validation_step(self, batch, batch_idx):
-        (
-            loss_state_mapper,
-            loss_state_mapper_disc,
-            loss_state_mapper_p,
-            loss_state_mapper_o,
-        ) = self.loss(batch["A"])
-        self.log(
-            f"validation_loss_{self.log_id}",
-            loss_state_mapper,
-            on_step=False,
-            on_epoch=True,
-        )
-        self.log(
-            f"validation_loss_{self.log_id}_disc",
-            loss_state_mapper_disc,
-            on_step=False,
-            on_epoch=True,
-        )
-        self.log(
-            f"validation_loss_{self.log_id}_p",
-            loss_state_mapper_p,
-            on_step=False,
-            on_epoch=True,
-        )
-        self.log(
-            "validation_loss_{self.log_id}_o",
-            loss_state_mapper_o,
-            on_step=False,
-            on_epoch=True,
-        )
-        return loss_state_mapper_disc
+        loss = self.step(batch, batch_idx, "validation_")
+
+        return loss
 
     @classmethod
     def get_relevant_config(cls, config):

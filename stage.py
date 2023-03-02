@@ -21,6 +21,17 @@ from config import data_folder
 
 
 class Stage:
+    """Stages are the building blocks of the pipeline.
+
+    A stage is either generated (models are trained, data is collected, ...),
+    or loaded if a previously saved version exists.
+    Each stage is assigned a unique hash based on its configuration to identify previously generated versions.
+
+    Arguments:
+        config (dict) -- Configuration for this stage and all stages this stage depends on. Unused configuration is ignored.
+        run (bool) -- If True, the stage is run (generated/loaded/saved). If False, the stage is only initialized. Important for LitStages.
+    """
+
     def __init__(self, config, run=True, **kwargs):
         self.config = config
         self.hash = self.get_config_hash(config)
@@ -30,34 +41,36 @@ class Stage:
         self.log_suffix = config[self.__class__.__name__].get("log_suffix", "")
         self.log_id = self.log_prefix + self.__class__.__name__ + self.log_suffix
 
-        if "cache" not in config or config["cache"]["mode"] == "disabled":
-            load = False
-            save = False
-        else:
-            load = config["cache"].get("load", False)
-            if type(load) is str:
-                load = self.__class__.__name__ == load
-            elif type(load) is list:
-                load = self.__class__.__name__ in load
-            elif type(load) is dict:
-                load = load.get(self.__class__.__name__, False)
-                if type(load) is str:
-                    self.hash = load
-                    load = True
-
-            save = config["cache"].get("save", False)
-            if type(save) is str:
-                save = self.__class__.__name__ == save
-            elif type(save) is list:
-                save = self.__class__.__name__ in save
-            elif type(save) is dict:
-                save = save.get(self.__class__.__name__, False)
-
-            assert (
-                type(load) is bool and type(save) is bool
-            ), f"Invalid cache config: {config['cache']}"
-
         if run:
+            # Figure out which steps of {generate, load, save} should be performed
+            if "cache" not in config or config["cache"]["mode"] == "disabled":
+                load = False
+                save = False
+            else:
+                load = config["cache"].get("load", False)
+                if type(load) is str:
+                    load = self.__class__.__name__ == load
+                elif type(load) is list:
+                    load = self.__class__.__name__ in load
+                elif type(load) is dict:
+                    load = load.get(self.__class__.__name__, False)
+                    if type(load) is str:
+                        self.hash = load
+                        load = True
+
+                save = config["cache"].get("save", False)
+                if type(save) is str:
+                    save = self.__class__.__name__ == save
+                elif type(save) is list:
+                    save = self.__class__.__name__ in save
+                elif type(save) is dict:
+                    save = save.get(self.__class__.__name__, False)
+
+                assert (
+                    type(load) is bool and type(save) is bool
+                ), f"Invalid cache config: {config['cache']}"
+
+            # Summary of this stage
             logging.info(
                 f"Stage {self.__class__.__name__}:"
                 f"\n\thash: {self.hash}"
@@ -74,6 +87,7 @@ class Stage:
                     # Don't save again if we loaded
                     save = False
                 except Exception as e:
+                    # if something went wrong with loading, generate instead
                     logging.warning(
                         f"Loading cache not possible "
                         f"for {self.__class__.__name__}. "
@@ -121,6 +135,8 @@ class Stage:
 
     @classmethod
     def get_config_hash(cls, config):
+        """Get a unique hash for the relevant part of the config."""
+
         return hashlib.sha256(
             json.dumps(
                 cls.get_relevant_config(config),
@@ -131,11 +147,31 @@ class Stage:
 
 
 class LitStage(LightningModule, Stage):
+    """LitStages are stages that use PyTorch Lightning.
+
+    Arguments:
+        config (dict) -- Configuration for this stage and all stages this stage depends on. Unused configuration is ignored.
+        load_checkpoint (bool) -- If True, the stage is not run, because the parameters are taken from a checkpoint. If False, the stage is run.
+    """
+
     def __init__(self, config, load_checkpoint=False, **kwargs):
         LightningModule.__init__(self)
+        self.init_models(config, load_checkpoint=load_checkpoint)
         Stage.__init__(self, config, run=not load_checkpoint)
 
-    """Stage methods"""
+    def init_models(self, config, **kwargs):
+        # Models can only be registered after call to torch.Module.__init__()
+        pass
+
+    """LitStage specific methods"""
+
+    def get_state_dict(self):
+        raise NotImplementedError()
+
+    def set_state_dict(self, state_dict):
+        raise NotImplementedError()
+
+    """Stage methods. See Stage class for further documentation."""
 
     def save(self, path=None):
         if path is None and self.config["cache"]["mode"] == "wandb":
@@ -154,34 +190,37 @@ class LitStage(LightningModule, Stage):
             raise ValueError(f"Invalid path: {path}")
 
     def generate(self):
-        with wandb.init(
-            config=self.get_relevant_config(self.config),
-            **self.config.get("wandb_config", {"mode": "disabled"}),
-            group=self.__class__.__name__,
-            tags=[self.hash],
-        ) as run, tempfile.TemporaryDirectory() as tmpdir:
-            self.run_id = run.id
-            wandb_logger = WandbLogger(log_model=False, save_dir=tmpdir)
-            checkpoint_callback = ModelCheckpoint(
-                monitor=f"validation_loss_{self.log_id}",
-                mode="min",
-                filename=f"checkpoint_{self.hash}",
-            )
+        if self.config[self.__class__.__name__].get("train", {}).get("max_epochs"):
+            with wandb.init(
+                config=self.get_relevant_config(self.config),
+                **self.config.get("wandb_config", {"mode": "disabled"}),
+                group=self.__class__.__name__,
+                tags=[self.hash],
+            ) as run, tempfile.TemporaryDirectory() as tmpdir:
+                self.run_id = run.id
+                wandb_logger = WandbLogger(log_model=False, save_dir=tmpdir)
+                checkpoint_callback = ModelCheckpoint(
+                    monitor=f"validation_loss_{self.log_id}",
+                    mode="min",
+                    filename=f"checkpoint_{self.hash}",
+                )
 
-            trainer = pl.Trainer(
-                accelerator="gpu" if torch.cuda.is_available() else "cpu",
-                max_time="00:07:55:00",
-                max_epochs=self.config[self.__class__.__name__]["train"]["max_epochs"],
-                logger=wandb_logger,
-                callbacks=[checkpoint_callback],
-            )
-            trainer.fit(self)
+                trainer = pl.Trainer(
+                    accelerator="gpu" if torch.cuda.is_available() else "cpu",
+                    max_time="00:07:55:00",
+                    max_epochs=self.config[self.__class__.__name__]["train"][
+                        "max_epochs"
+                    ],
+                    logger=wandb_logger,
+                    callbacks=[checkpoint_callback],
+                )
+                trainer.fit(self)
 
-            self.load_from_checkpoint(
-                checkpoint_callback.best_model_path,
-                config=self.config,
-                load_checkpoint=True,
-            )
+                self.load_from_checkpoint(
+                    checkpoint_callback.best_model_path,
+                    config=self.config,
+                    load_checkpoint=True,
+                )
 
     def load(self, path=None):
         if path is None and self.config["cache"]["mode"] == "wandb":
@@ -208,19 +247,13 @@ class LitStage(LightningModule, Stage):
         else:
             raise ValueError(f"Invalid path: {path}")
 
-    def get_state_dict(self):
-        raise NotImplementedError()
-
-    def set_state_dict(self, state_dict):
-        raise NotImplementedError()
-
     @classmethod
     def get_relevant_config(cls, config):
         return {
             cls.__name__: config[cls.__name__],
         }
 
-    """LightningModule methods"""
+    """LightningModule methods. See Lightning documentation for further information."""
 
     def get_model(self):
         raise NotImplementedError(

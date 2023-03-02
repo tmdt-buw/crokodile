@@ -25,7 +25,6 @@ class Push(Task):
         max_steps=100,
         parameter_distributions=None,
     ):
-
         super(Push, self).__init__(
             bullet_client=bullet_client,
             offset=offset,
@@ -89,7 +88,6 @@ class Push(Task):
         elif done:
             reward = -1.0
         else:
-
             goal_achieved_obj = unwind_dict_values(goal["achieved"])
             goal_desired = unwind_dict_values(goal["desired"])
 
@@ -98,7 +96,6 @@ class Push(Task):
         return reward
 
     def reset(self, robot=None, state_robot=None, desired_state=None):
-
         super(Push, self).reset()
 
         if desired_state is not None:
