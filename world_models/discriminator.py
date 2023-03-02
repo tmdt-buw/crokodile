@@ -58,7 +58,7 @@ class Discriminator(LitStage):
         #     "name": "scheduler_lr_disc",
         # }
 
-        return optimizer_discriminator # , [scheduler_disc]
+        return optimizer_discriminator  # , [scheduler_disc]
 
     def loss(self, batch):
         labels_true = self.discriminator(batch["true"])
@@ -67,7 +67,8 @@ class Discriminator(LitStage):
         loss = torch.nn.functional.binary_cross_entropy(
             labels_true, torch.ones_like(labels_true)
         ) + torch.nn.functional.binary_cross_entropy(
-            labels_fake, torch.zeros_like(labels_fake))
+            labels_fake, torch.zeros_like(labels_fake)
+        )
 
         return loss
 

@@ -22,6 +22,7 @@ config_task = {
     "accuracy": 0.03,
 }
 
+
 def transition_model_main():
     config = {
         "TransitionModel": {
@@ -83,7 +84,6 @@ def discriminator_main():
 def state_mapper_main():
     from mapper.mapper_state import StateMapper
 
-
     config = {
         "EnvSource": {
             "env": "robot-task",
@@ -122,8 +122,8 @@ def state_mapper_main():
                 "max_epochs": 1,
                 "batch_size": 512,
                 "lr": 1e-3,
-                "cycle_consistency_factor": .1,
-                "discriminator_factor": .25,
+                "cycle_consistency_factor": 0.1,
+                "discriminator_factor": 0.25,
             },
         },
         "DiscriminatorSource": {

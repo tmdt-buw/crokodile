@@ -137,7 +137,6 @@ class PositionalEncoding(nn.Module):
 
 
 if __name__ == "__main__":
-
     model = Seq2SeqTransformer(6, 7)
 
     src = torch.rand(10, 1, 6)  # NCL
@@ -199,7 +198,6 @@ if __name__ == "__main__":
     loss_function = torch.nn.MSELoss()
 
     for _ in range(1_000):
-
         trajectory_batch = []
         target = torch.ones((batch_size, max_seq_length, input_dim))
 

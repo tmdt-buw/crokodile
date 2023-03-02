@@ -119,17 +119,31 @@ class StateMapper(LitStage):
     @cached_property
     def loss_function(self):
         dummy_state_source = torch.zeros(
-            (1, self.env_source.state_space["robot"]["arm"]["joint_positions"].shape[-1])
+            (
+                1,
+                self.env_source.state_space["robot"]["arm"]["joint_positions"].shape[
+                    -1
+                ],
+            )
         )
         dummy_state_target = torch.zeros(
-            (1, self.env_target.state_space["robot"]["arm"]["joint_positions"].shape[-1])
+            (
+                1,
+                self.env_target.state_space["robot"]["arm"]["joint_positions"].shape[
+                    -1
+                ],
+            )
         )
 
         self.env_source.dht_model.to(dummy_state_source)
         self.env_target.dht_model.to(dummy_state_target)
 
-        link_positions_source = self.env_source.dht_model(dummy_state_source)[0, :, :3, -1]
-        link_positions_target = self.env_target.dht_model(dummy_state_target)[0, :, :3, -1]
+        link_positions_source = self.env_source.dht_model(dummy_state_source)[
+            0, :, :3, -1
+        ]
+        link_positions_target = self.env_target.dht_model(dummy_state_target)[
+            0, :, :3, -1
+        ]
 
         weight_matrix_p, weight_matrix_o = get_weight_matrices(
             link_positions_source,
@@ -269,7 +283,6 @@ class StateMapper(LitStage):
         return loss
 
     def step(self, batch, batch_idx, prefix=""):
-
         loss_source_target = self.loss(
             batch["source"],
             self.state_mapper_source_target,

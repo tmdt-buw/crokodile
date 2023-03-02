@@ -22,15 +22,16 @@ from config import data_folder
 
 class Stage:
     """Stages are the building blocks of the pipeline.
-    
+
     A stage is either generated (models are trained, data is collected, ...),
     or loaded if a previously saved version exists.
     Each stage is assigned a unique hash based on its configuration to identify previously generated versions.
 
     Arguments:
         config (dict) -- Configuration for this stage and all stages this stage depends on. Unused configuration is ignored.
-        run (bool) -- If True, the stage is run (generated/loaded/saved). If False, the stage is only initialized. Important for LitStages. 
+        run (bool) -- If True, the stage is run (generated/loaded/saved). If False, the stage is only initialized. Important for LitStages.
     """
+
     def __init__(self, config, run=True, **kwargs):
         self.config = config
         self.hash = self.get_config_hash(config)
@@ -147,7 +148,7 @@ class Stage:
 
 class LitStage(LightningModule, Stage):
     """LitStages are stages that use PyTorch Lightning.
-    
+
     Arguments:
         config (dict) -- Configuration for this stage and all stages this stage depends on. Unused configuration is ignored.
         load_checkpoint (bool) -- If True, the stage is not run, because the parameters are taken from a checkpoint. If False, the stage is run.
@@ -169,7 +170,6 @@ class LitStage(LightningModule, Stage):
 
     def set_state_dict(self, state_dict):
         raise NotImplementedError()
-
 
     """Stage methods. See Stage class for further documentation."""
 
@@ -208,13 +208,19 @@ class LitStage(LightningModule, Stage):
                 trainer = pl.Trainer(
                     accelerator="gpu" if torch.cuda.is_available() else "cpu",
                     max_time="00:07:55:00",
-                    max_epochs=self.config[self.__class__.__name__]["train"]["max_epochs"],
+                    max_epochs=self.config[self.__class__.__name__]["train"][
+                        "max_epochs"
+                    ],
                     logger=wandb_logger,
                     callbacks=[checkpoint_callback],
                 )
                 trainer.fit(self)
 
-                self.load_from_checkpoint(checkpoint_callback.best_model_path, config=self.config, load_checkpoint=True)
+                self.load_from_checkpoint(
+                    checkpoint_callback.best_model_path,
+                    config=self.config,
+                    load_checkpoint=True,
+                )
 
     def load(self, path=None):
         if path is None and self.config["cache"]["mode"] == "wandb":

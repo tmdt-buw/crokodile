@@ -108,7 +108,6 @@ class DHT_Transform(torch.nn.Module):
             self.alpha_upscale_dim = NeuralNetwork(1, network_structure)
 
     def forward(self, x=None):
-
         if hasattr(self, "theta"):
             theta = self.theta.expand(len(x), 1)
         else:
@@ -195,7 +194,6 @@ class DHT_Model(torch.nn.Module):
         self.pose_init = torch.nn.Parameter(torch.eye(4, 4), requires_grad=False)
 
     def forward(self, params):
-
         pose = (
             torch.eye(4, 4, device=params.device)
             .unsqueeze(0)
@@ -227,7 +225,6 @@ def get_dht_model(dht_params, joint_limits, upscale_dim=False):
 
 
 if __name__ == "__main__":
-
     # theta = np.random.rand()
     # d = np.random.rand()
     # a = np.random.rand()

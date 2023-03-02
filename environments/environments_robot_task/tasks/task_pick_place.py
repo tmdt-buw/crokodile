@@ -26,7 +26,6 @@ class TaskPickPlace(Task):
         parameter_distributions=None,
         **kwargs
     ):
-
         super(TaskPickPlace, self).__init__(
             bullet_client=bullet_client,
             parameter_distributions=parameter_distributions,
@@ -143,7 +142,6 @@ class TaskPickPlace(Task):
         state_robot=None,
         force=False,
     ):
-
         super(TaskPickPlace, self).reset()
 
         if self.tcp_object_constraint is not None:

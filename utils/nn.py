@@ -165,7 +165,6 @@ class NeuralNetwork(nn.Module):
         return x
 
     def get_weights(self):
-
         weights = []
 
         for operator in self.operators:

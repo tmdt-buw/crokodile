@@ -300,7 +300,6 @@ class LitStateMapper(pl.LightningModule):
     """
 
     def training_step(self, batch, batch_idx):
-
         (
             optimizer_state_mapper_AB,
             optimizer_state_mapper_BA,
@@ -372,7 +371,6 @@ class LitStateMapper(pl.LightningModule):
     """
 
     def validation_step(self, batch, batch_idx):
-
         loss_A = self.step(batch, batch_idx, 0, "validation_")
         loss_B = self.step(batch, batch_idx, 1, "validation_")
 

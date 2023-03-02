@@ -31,21 +31,18 @@ robot = get_robot(
 state_goal = [0, 0, 0, -1.0, -0.5, 0.5]
 
 
-
 tcp_pose = robot.get_tcp_pose()
 print(tcp_pose)
 
 tcp_pose = torch.eye(4)
-tcp_pose[:3,:3] = torch.tensor([[0,0,1],[0,1,0],[-1,0,0]])
-tcp_pose[:3,-1] = torch.tensor([.5,0,.2])
+tcp_pose[:3, :3] = torch.tensor([[0, 0, 1], [0, 1, 0], [-1, 0, 0]])
+tcp_pose[:3, -1] = torch.tensor([0.5, 0, 0.2])
 
 angles = robot.inverse_kinematics(tcp_pose)
 states = robot.angle2state(angles)
-state = states[0,0]
+state = states[0, 0]
 
-robot.reset(
-    {"arm": {"joint_positions": state}}, force=True
-)
+robot.reset({"arm": {"joint_positions": state}}, force=True)
 
 while True:
     p.stepSimulation()

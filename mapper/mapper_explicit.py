@@ -73,7 +73,6 @@ class MapperExplicit(Mapper):
                 pass
 
     def map_trajectory(self, trajectory):
-
         joint_positions_source = np.stack(
             [
                 obs["state"]["robot"]["arm"]["joint_positions"]

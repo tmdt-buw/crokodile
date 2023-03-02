@@ -8,7 +8,6 @@ from environments.environment_robot_task import Callbacks
 from trainer.apprentice import Apprentice
 
 if __name__ == "__main__":
-
     config_task = {
         "name": "reach",
         "max_steps": 25,

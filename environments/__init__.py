@@ -1,5 +1,4 @@
 def get_env(env_config):
-
     environment_name = env_config.pop("name")
 
     if environment_name == "robot-task":
