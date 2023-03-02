@@ -1,23 +1,25 @@
+import itertools
+import logging
 import os
 import sys
+from copy import deepcopy
 from copy import deepcopy
 from pathlib import Path
 
 import torch
 from pytorch_lightning.trainer.supporters import CombinedLoader
-from world_models.discriminator import DiscriminatorSource, DiscriminatorTarget
+from torch.nn.functional import relu
+
 from models.dht import get_dht_model
-import logging
-import itertools
+from world_models.discriminator import DiscriminatorSource, DiscriminatorTarget
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from functools import cached_property
 
 from config import data_folder
-from stage import LitStage
-from functools import cached_property
 from environments.environment_robot_task import EnvironmentRobotTask
+from stage import LitStage
 from utils.nn import KinematicChainLoss, create_network, get_weight_matrices
 
 

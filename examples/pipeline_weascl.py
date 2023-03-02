@@ -7,10 +7,9 @@ import logging
 
 import numpy as np
 
+from mapper import Mapper
 from world_models.discriminator import DiscriminatorSource
 from world_models.transition import TransitionModel
-
-import logging
 
 logging.getLogger().setLevel(logging.INFO)
 

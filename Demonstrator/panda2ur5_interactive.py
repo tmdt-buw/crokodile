@@ -1,7 +1,8 @@
-import torch
-import pybullet as p
 import sys
 from pathlib import Path
+
+import pybullet as p
+import torch
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from copy import deepcopy
@@ -9,11 +10,12 @@ from copy import deepcopy
 import pybullet as p
 import torch
 
+from copy import deepcopy
+
 from environments import get_env
 from environments.environments_robot_task.robots import get_robot
 from environments.experts import get_expert
-from utils.nn import Sawtooth, KinematicChainLoss, get_weight_matrices
-from copy import deepcopy
+from utils.nn import KinematicChainLoss, Sawtooth, get_weight_matrices
 
 p.connect(p.GUI)
 # p.connect(p.DIRECT)

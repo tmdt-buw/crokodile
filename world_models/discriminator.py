@@ -9,11 +9,10 @@ from torch.optim.lr_scheduler import MultiStepLR
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from config import data_folder
+from environments import get_env
 from environments.environment_robot_task import EnvironmentRobotTask
 from stage import LitStage
 from utils.nn import create_network
-from environments.environment_robot_task import EnvironmentRobotTask
-from environments import get_env
 
 
 class Discriminator(LitStage):

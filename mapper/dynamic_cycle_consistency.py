@@ -1,8 +1,10 @@
+import logging
+
+import torch
 from mapper_state import StateMapper
 from pytorch_lightning.trainer.supporters import CombinedLoader
+
 from stage import LitStage
-import logging
-import torch
 
 
 class StateCycleConsistency(LitStage):
