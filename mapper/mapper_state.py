@@ -1,23 +1,18 @@
-import itertools
 import logging
-import os
 import sys
 from copy import deepcopy
 from pathlib import Path
 
 import torch
 from pytorch_lightning.trainer.supporters import CombinedLoader
-from torch.nn.functional import relu
 
-from models.dht import get_dht_model
 from world_models.discriminator import DiscriminatorSource, DiscriminatorTarget
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from functools import cached_property
 
-from config import data_folder
-from environments.environment_robot_task import EnvironmentRobotTask
+from environments import get_env
 from stage import LitStage
 from utils.nn import KinematicChainLoss, create_network, get_weight_matrices
 
@@ -38,14 +33,22 @@ class StateMapper(LitStage):
     def init_models(self, config, **kwargs):
         self.automatic_optimization = False
 
+        env_config_source = config["EnvSource"]["env_config"]
+        env_config_source["name"] = config["EnvSource"]["env"]
+        self.env_source = EnvWrapper(get_env(env_config_source))
+
+        env_config_target = config["EnvTarget"]["env_config"]
+        env_config_target["name"] = config["EnvTarget"]["env"]
+        self.env_target = EnvWrapper(get_env(env_config_target))
+
         self.state_mapper_source_target = self.get_state_mapper(
-            config["EnvSource"],
-            config["EnvTarget"],
+            self.env_source,
+            self.env_target,
             config[self.__class__.__name__]["model"],
         )
         self.state_mapper_target_source = self.get_state_mapper(
-            config["EnvTarget"],
-            config["EnvSource"],
+            self.env_target,
+            self.env_source,
             config[self.__class__.__name__]["model"],
         )
 
@@ -60,10 +63,7 @@ class StateMapper(LitStage):
             **DiscriminatorTarget.get_relevant_config(config),
         }
 
-    def get_state_mapper(self, env_from_config, env_to_config, model_config):
-        env_from = EnvironmentRobotTask(env_from_config["env_config"])
-        env_to = EnvironmentRobotTask(env_to_config["env_config"])
-
+    def get_state_mapper(self, env_from, env_to, model_config):
         state_mapper = create_network(
             in_dim=env_from.state_space["robot"]["arm"]["joint_positions"].shape[-1],
             out_dim=env_to.state_space["robot"]["arm"]["joint_positions"].shape[-1],
@@ -101,18 +101,6 @@ class StateMapper(LitStage):
             logging.warning(
                 "No state dict for state_mapper_target_source found, but cycle_consistency_factor != 0."
             )
-
-    @cached_property
-    def env_source(self):
-        env = EnvironmentRobotTask(self.config["EnvSource"]["env_config"])
-        env_wrapper = EnvWrapper(env)
-        return env_wrapper
-
-    @cached_property
-    def env_target(self):
-        env = EnvironmentRobotTask(self.config["EnvTarget"]["env_config"])
-        env_wrapper = EnvWrapper(env)
-        return env_wrapper
 
     @cached_property
     def loss_function(self):

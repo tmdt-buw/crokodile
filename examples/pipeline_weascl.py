@@ -186,7 +186,22 @@ def trajectory_mapper_main():
                 "disable_env_checking": True,
             },
         },
-        "TransitionModel": {
+        "TransitionModelSource": {
+            "model_cls": "transition_model",
+            "data": data_file_A,
+            "model": {
+                "network_width": 256,
+                "network_depth": 4,
+                "dropout": 0.0,
+                "out_activation": "tanh",
+            },
+            "train": {
+                "max_epochs": 1,
+                "batch_size": 2048,
+                "lr": 1e-3,
+            },
+        },
+        "TransitionModelTarget": {
             "model_cls": "transition_model",
             "data": data_file_B,
             "model": {
@@ -255,7 +270,7 @@ def trajectory_mapper_main():
                     "num_decoder_layers": 2,
                     "dim_feedforward": 64,
                 },
-                "decoder": {
+                "action_mapper": {
                     "network_width": 256,
                     "network_depth": 8,
                     "dropout": 0.1,
