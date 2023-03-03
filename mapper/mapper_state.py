@@ -300,10 +300,10 @@ class StateMapper(LitStage):
         loss = loss_source_target + loss_target_source
 
         log_dict = {
-                f"loss_source_target_{self.log_id}": loss_source_target,
-                f"loss_target_source_{self.log_id}": loss_target_source,
-                f"loss_{self.log_id}": loss,
-            }
+            f"loss_source_target_{self.log_id}": loss_source_target,
+            f"loss_target_source_{self.log_id}": loss_target_source,
+            f"loss_{self.log_id}": loss,
+        }
 
         return loss, log_dict
 
@@ -311,6 +311,7 @@ class StateMapper(LitStage):
         Perform training step. Customized behavior to log different loss compoents.
         Refer to pytorch lightning docs.
     """
+
     def training_step(self, batch, batch_idx):
         loss, log_dict = self.training_step_(self.optimizers(), batch, batch_idx)
 
@@ -361,7 +362,7 @@ class StateMapper(LitStage):
             {"true": states_target, "fake": states_target_}
         )
         log_dict.update(log_dict_)
-        
+
         loss_discriminator = loss_discriminator_source + loss_discriminator_target
 
         optimizer_discriminator_source.zero_grad()
@@ -379,7 +380,6 @@ class StateMapper(LitStage):
 
     def validation_step_(self, batch, batch_idx):
         return self.loss(batch, batch_idx)
-
 
     def validation_step(self, batch, batch_idx):
         loss, log_dict = self.validation_step_(batch, batch_idx)

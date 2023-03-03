@@ -16,7 +16,7 @@ from utils.nn import KinematicChainLoss, create_network, get_weight_matrices
 from utils.soft_dtw_cuda import SoftDTW
 from world_models.transition import TransitionModel
 
-from .mapper_state import StateMapper, EnvWrapper
+from .mapper_state import EnvWrapper, StateMapper
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
@@ -38,7 +38,9 @@ class MapperWeaSCL(LitStage, Mapper):
         env_target = EnvironmentRobotTask(config["EnvTarget"]["env_config"])
 
         self.trajectory_encoder = TrajectoryEncoder(
-            state_dim=env_source.state_space["robot"]["arm"]["joint_positions"].shape[-1],
+            state_dim=env_source.state_space["robot"]["arm"]["joint_positions"].shape[
+                -1
+            ],
             action_dim=env_source.action_space["arm"].shape[-1],
             behavior_dim=config[self.__class__.__name__]["model"]["behavior_dim"],
             max_len=env_source.task.max_steps * 2 + 1,
@@ -269,7 +271,7 @@ class MapperWeaSCL(LitStage, Mapper):
         log_dict = {
             f"loss_{self.log_id}": loss,
         }
-        
+
         return loss, log_dict
 
     def training_step(self, batch, batch_idx):
@@ -277,7 +279,9 @@ class MapperWeaSCL(LitStage, Mapper):
         optimizer_action_mapper = optimizers[0]
         optimizers_state_mapper = optimizers[1:]
 
-        loss_state_mapper, log_dict = self.state_mapper.training_step_(optimizers_state_mapper, batch, batch_idx)
+        loss_state_mapper, log_dict = self.state_mapper.training_step_(
+            optimizers_state_mapper, batch, batch_idx
+        )
 
         loss, log_dict_ = self.loss(batch["source"])
         log_dict.update(log_dict_)
