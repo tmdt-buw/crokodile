@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 import numpy as np
-import pylab as p
+import pybullet as p
 import torch
 
 sys.path.append(str(Path(__file__).resolve().parent))

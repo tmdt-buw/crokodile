@@ -70,7 +70,11 @@ class Discriminator(LitStage):
             labels_fake, torch.zeros_like(labels_fake)
         )
 
-        return loss
+        log_dict = {
+            f"loss_{self.log_id}": loss,
+        }
+
+        return loss, log_dict
 
     @classmethod
     def get_relevant_config(cls, config):

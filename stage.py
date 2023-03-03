@@ -82,8 +82,9 @@ class Stage:
             if load:
                 try:
                     logging.info(f"Loading cache for {self.__class__.__name__}.")
-
                     self.load()
+                    logging.info(f"Loaded cache for {self.__class__.__name__}.")
+
                     # Don't save again if we loaded
                     save = False
                 except Exception as e:
@@ -94,15 +95,17 @@ class Stage:
                     )
                     logging.exception(e)
                     self.generate()
+                logging.info(f"Generated {self.__class__.__name__}.")
+
             else:
                 logging.info(f"Generating {self.__class__.__name__}.")
-
                 self.generate()
+                logging.info(f"Generated {self.__class__.__name__}.")
 
             if save:
                 logging.info(f"Saving {self.__class__.__name__}.")
-
                 self.save()
+                logging.info(f"Saved {self.__class__.__name__}.")
 
     def __del__(self):
         try:

@@ -186,42 +186,8 @@ def trajectory_mapper_main():
                 "disable_env_checking": True,
             },
         },
-        "StateMapper": {
-            "model": {
-                "network_width": 1024,
-                "network_depth": 4,
-                "dropout": 0.1,
-                "out_activation": "tanh",
-                "weight_matrix_exponent_p": np.inf,
-            },
-            "train": {
-                "max_epochs": 1,
-                "batch_size": 512,
-                "lr": 1e-3,
-            },
-        },
-        "Discriminator": {
-            "data": data_file_B,
-            "model": {
-                "objective": "soft-boundary",
-                "eps": 0.01,
-                "init_center_samples": 100,
-                "nu": 1e-3,
-                "out_dim": 4,
-                "network_width": 256,
-                "network_depth": 4,
-                "dropout": 0.2,
-                "warmup_epochs": 10,
-            },
-            "train": {
-                "max_epochs": 1,
-                "batch_size": 512,
-                "lr": 1e-3,
-                "scheduler_epoch": 150,
-                "lr_decrease": 0.1,
-            },
-        },
         "TransitionModel": {
+            "model_cls": "transition_model",
             "data": data_file_B,
             "model": {
                 "network_width": 256,
@@ -232,6 +198,46 @@ def trajectory_mapper_main():
             "train": {
                 "max_epochs": 1,
                 "batch_size": 2048,
+                "lr": 1e-3,
+            },
+        },
+        "StateMapper": {
+            "data": {"data_file_X": data_file_A, "data_file_Y": data_file_B},
+            "model": {
+                "network_width": 1024,
+                "network_depth": 4,
+                "dropout": 0.1,
+                "out_activation": "tanh",
+                "weight_matrix_exponent_p": np.inf,
+            },
+            "train": {
+                # "batch_size": 512,
+                "lr": 1e-3,
+                "cycle_consistency_factor": 0.1,
+                "discriminator_factor": 0.25,
+            },
+        },
+        "DiscriminatorSource": {
+            "data": data_file_A,
+            "model": {
+                "network_width": 1024,
+                "network_depth": 4,
+                "dropout": 0.1,
+                "out_activation": "sigmoid",
+            },
+            "train": {
+                "lr": 1e-3,
+            },
+        },
+        "DiscriminatorTarget": {
+            "data": data_file_B,
+            "model": {
+                "network_width": 1024,
+                "network_depth": 4,
+                "dropout": 0.1,
+                "out_activation": "sigmoid",
+            },
+            "train": {
                 "lr": 1e-3,
             },
         },
@@ -269,5 +275,5 @@ def trajectory_mapper_main():
 if __name__ == "__main__":
     # transition_model_main()
     # discriminator_main()
-    state_mapper_main()
-    # trajectory_mapper_main()
+    # state_mapper_main()
+    trajectory_mapper_main()

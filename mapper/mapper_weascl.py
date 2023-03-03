@@ -16,7 +16,7 @@ from utils.nn import KinematicChainLoss, create_network, get_weight_matrices
 from utils.soft_dtw_cuda import SoftDTW
 from world_models.transition import TransitionModel
 
-from .mapper_state import StateMapper
+from .mapper_state import StateMapper, EnvWrapper
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
@@ -26,10 +26,32 @@ from environments.environment_robot_task import EnvironmentRobotTask
 
 
 class MapperWeaSCL(LitStage, Mapper):
-    trajectory_mapper = None
-
     def __init__(self, config, **kwargs):
         super(MapperWeaSCL, self).__init__(config, **kwargs)
+
+    def init_models(self, config, **kwargs):
+        self.automatic_optimization = False
+
+        self.state_mapper = StateMapper(config, **kwargs)
+
+        env_source = EnvironmentRobotTask(config["EnvSource"]["env_config"])
+        env_target = EnvironmentRobotTask(config["EnvTarget"]["env_config"])
+
+        self.trajectory_encoder = TrajectoryEncoder(
+            state_dim=env_source.state_space["robot"]["arm"]["joint_positions"].shape[-1],
+            action_dim=env_source.action_space["arm"].shape[-1],
+            behavior_dim=config[self.__class__.__name__]["model"]["behavior_dim"],
+            max_len=env_source.task.max_steps * 2 + 1,
+            **config[self.__class__.__name__]["model"]["encoder"],
+        )
+
+        # todo: make policy own module
+        self.policy = create_network(
+            in_dim=config[self.__class__.__name__]["model"]["behavior_dim"]
+            + env_target.state_space["robot"]["arm"]["joint_positions"].shape[-1],
+            out_dim=env_target.action_space["arm"].shape[-1],
+            **config[self.__class__.__name__]["model"]["decoder"],
+        )
 
     def map_trajectory(self, trajectory):
         joint_positions_source = np.stack(
@@ -68,44 +90,6 @@ class MapperWeaSCL(LitStage, Mapper):
         transition_model.to(self.device)
         return transition_model
 
-    @cached_property
-    def state_mapper(self):
-        state_mapper = deepcopy(StateMapper(self.config).state_mapper)
-        state_mapper.to(self.device)
-        return state_mapper
-
-    @cached_property
-    def trajectory_encoder(self):
-        env = EnvironmentRobotTask(self.config["EnvSource"]["env_config"])
-
-        trajectory_encoder = TrajectoryEncoder(
-            state_dim=env.state_space["robot"]["arm"]["joint_positions"].shape[-1],
-            action_dim=env.action_space["arm"].shape[-1],
-            behavior_dim=self.config[self.__class__.__name__]["model"]["behavior_dim"],
-            max_len=env.task.max_steps * 2 + 1,
-            **self.config[self.__class__.__name__]["model"]["encoder"],
-        )
-
-        trajectory_encoder.to(self.device)
-
-        return trajectory_encoder
-
-    @cached_property
-    def policy(self):
-        env = EnvironmentRobotTask(self.config["EnvTarget"]["env_config"])
-
-        # todo: make policy own module
-        policy = create_network(
-            in_dim=self.config[self.__class__.__name__]["model"]["behavior_dim"]
-            + env.state_space["robot"]["arm"]["joint_positions"].shape[-1],
-            out_dim=env.action_space["arm"].shape[-1],
-            **self.config[self.__class__.__name__]["model"]["decoder"],
-        )
-
-        policy.to(self.device)
-
-        return policy
-
     def get_state_dict(self):
         state_dict = {
             "trajectory_encoder": self.trajectory_encoder.state_dict(),
@@ -117,31 +101,31 @@ class MapperWeaSCL(LitStage, Mapper):
         self.trajectory_encoder.load_state_dict(state_dict["trajectory_encoder"])
         self.policy.load_state_dict(state_dict["policy"])
 
+    # todo: consolidate this into own file (see duplicate mapper_state.py)
     @cached_property
-    def dht_model_source(self):
-        env_source = EnvironmentRobotTask(self.config["EnvSource"]["env_config"])
-        dht_model_source = deepcopy(env_source.robot.dht_model)
-        dht_model_source.to(self.device)
-        return dht_model_source
+    def env_source(self):
+        env = EnvironmentRobotTask(self.config["EnvSource"]["env_config"])
+        env_wrapper = EnvWrapper(env)
+        return env_wrapper
 
+    # todo: consolidate this into own file (see duplicate mapper_state.py)
     @cached_property
-    def dht_model_target(self):
-        env_target = EnvironmentRobotTask(self.config["EnvTarget"]["env_config"])
-        dht_model_target = deepcopy(env_target.robot.dht_model)
-        dht_model_target.to(self.device)
-        return dht_model_target
+    def env_target(self):
+        env = EnvironmentRobotTask(self.config["EnvTarget"]["env_config"])
+        env_wrapper = EnvWrapper(env)
+        return env_wrapper
 
     @cached_property
     def loss_function(self):
         env_source = EnvironmentRobotTask(self.config["EnvSource"]["env_config"])
         env_target = EnvironmentRobotTask(self.config["EnvTarget"]["env_config"])
 
-        link_positions_source = self.dht_model_source(
+        link_positions_source = self.env_source.dht_model(
             torch.zeros(
                 (1,) + env_source.state_space["robot"]["arm"]["joint_positions"].shape
             ).to(self.device)
         )[0, :, :3, -1]
-        link_positions_target = self.dht_model_target(
+        link_positions_target = self.env_target.dht_model(
             torch.zeros(
                 (1,) + env_target.state_space["robot"]["arm"]["joint_positions"].shape
             ).to(self.device)
@@ -169,7 +153,9 @@ class MapperWeaSCL(LitStage, Mapper):
             chain(self.trajectory_encoder.parameters(), self.policy.parameters()),
             lr=self.config[self.__class__.__name__]["train"].get("lr", 3e-4),
         )
-        return optimizer_action_mapper
+        optimizers_state_mapper = self.state_mapper.configure_optimizers()
+
+        return [optimizer_action_mapper, *optimizers_state_mapper]
 
     def train_dataloader(self):
         # todo: replace data file with data stage
@@ -268,8 +254,8 @@ class MapperWeaSCL(LitStage, Mapper):
         )
 
         # (b*l)p44
-        link_poses_source = self.dht_model_source(states_source)
-        link_poses_target = self.dht_model_target(states_target)
+        link_poses_source = self.env_source.dht_model(states_source)
+        link_poses_target = self.env_target.dht_model(states_target)
 
         # blp44
         link_poses_source = link_poses_source.reshape(
@@ -280,26 +266,37 @@ class MapperWeaSCL(LitStage, Mapper):
         )
 
         loss = self.loss_function(link_poses_source, link_poses_target).mean()
-        return loss
+        log_dict = {
+            f"loss_{self.log_id}": loss,
+        }
+        
+        return loss, log_dict
 
     def training_step(self, batch, batch_idx):
-        loss = self.loss(batch["source"])
-        self.log(
-            f"train_loss_{self.log_id}",
-            loss,
-            on_step=False,
-            on_epoch=True,
-        )
+        optimizers = self.optimizers()
+        optimizer_action_mapper = optimizers[0]
+        optimizers_state_mapper = optimizers[1:]
+
+        loss_state_mapper, log_dict = self.state_mapper.training_step_(optimizers_state_mapper, batch, batch_idx)
+
+        loss, log_dict_ = self.loss(batch["source"])
+        log_dict.update(log_dict_)
+
+        optimizer_action_mapper.zero_grad()
+        self.manual_backward(loss)
+        optimizer_action_mapper.step()
+
+        log_dict = {"train_" + k: v for k, v in log_dict.items()}
+        self.log_dict(log_dict, on_step=False, on_epoch=True)
+
         return loss
 
     def validation_step(self, batch, batch_idx):
-        loss = self.loss(batch["source"])
-        self.log(
-            f"validation_loss_{self.log_id}",
-            loss,
-            on_step=False,
-            on_epoch=True,
-        )
+        loss, log_dict = self.loss(batch["source"])
+
+        log_dict = {"validation_" + k: v for k, v in log_dict.items()}
+        self.log_dict(log_dict, on_step=False, on_epoch=True)
+
         return loss
 
 

@@ -33,8 +33,6 @@ class EnvWrapper:
 
 class StateMapper(LitStage):
     def __init__(self, config, **kwargs):
-        self.automatic_optimization = False
-
         super(StateMapper, self).__init__(config, **kwargs)
 
     def init_models(self, config, **kwargs):
@@ -226,10 +224,10 @@ class StateMapper(LitStage):
         return CombinedLoader(dataloaders)
 
     def forward(self, states_source):
-        states_target = self.state_mapper(states_source)
+        states_target = self.state_mapper_source_target(states_source)
         return states_target
 
-    def loss(
+    def loss_(
         self,
         batch_X,
         state_mapper_XY,
@@ -282,8 +280,8 @@ class StateMapper(LitStage):
 
         return loss
 
-    def step(self, batch, batch_idx, prefix=""):
-        loss_source_target = self.loss(
+    def loss(self, batch, batch_idx):
+        loss_source_target = self.loss_(
             batch["source"],
             self.state_mapper_source_target,
             self.loss_function,
@@ -291,7 +289,7 @@ class StateMapper(LitStage):
             self.state_mapper_target_source,
         )
 
-        loss_target_source = self.loss(
+        loss_target_source = self.loss_(
             batch["target"],
             self.state_mapper_target_source,
             lambda t, s: self.loss_function(s, t),
@@ -301,32 +299,40 @@ class StateMapper(LitStage):
 
         loss = loss_source_target + loss_target_source
 
+        log_dict = {
+                f"loss_source_target_{self.log_id}": loss_source_target,
+                f"loss_target_source_{self.log_id}": loss_target_source,
+                f"loss_{self.log_id}": loss,
+            }
+
+        return loss, log_dict
+
+    """
+        Perform training step. Customized behavior to log different loss compoents.
+        Refer to pytorch lightning docs.
+    """
+    def training_step(self, batch, batch_idx):
+        loss, log_dict = self.training_step_(self.optimizers(), batch, batch_idx)
+
+        log_dict = {"train_" + k: v for k, v in log_dict.items()}
+
         self.log_dict(
-            {
-                f"{prefix}loss_source_target_{self.log_id}": loss_source_target,
-                f"{prefix}loss_target_source_{self.log_id}": loss_target_source,
-                f"{prefix}loss_{self.log_id}": loss,
-            },
+            log_dict,
             on_step=False,
             on_epoch=True,
         )
 
         return loss
 
-    """
-        Perform training step. Customized behavior to log different loss compoents.
-        Refer to pytorch lightning docs.
-    """
-
-    def training_step(self, batch, batch_idx):
+    def training_step_(self, optimizers, batch, batch_idx):
         (
             optimizer_state_mapper_source_target,
             optimizer_state_mapper_target_source,
             optimizer_discriminator_source,
             optimizer_discriminator_target,
-        ) = self.optimizers()
+        ) = optimizers
 
-        loss = self.step(batch, batch_idx, "train_")
+        loss, log_dict = self.loss(batch, batch_idx)
 
         optimizer_state_mapper_source_target.zero_grad()
         optimizer_state_mapper_target_source.zero_grad()
@@ -347,22 +353,15 @@ class StateMapper(LitStage):
         states_target_ = self.state_mapper_source_target(states_source)
         states_source_ = self.state_mapper_target_source(states_target)
 
-        loss_discriminator_source = self.discriminator_source.loss(
+        loss_discriminator_source, log_dict_ = self.discriminator_source.loss(
             {"true": states_source, "fake": states_source_}
         )
-        loss_discriminator_target = self.discriminator_target.loss(
+        log_dict.update(log_dict_)
+        loss_discriminator_target, log_dict_ = self.discriminator_target.loss(
             {"true": states_target, "fake": states_target_}
         )
-
-        self.log_dict(
-            {
-                f"train_loss_{self.discriminator_source.log_id}": loss_discriminator_source,
-                f"train_loss_{self.discriminator_target.log_id}": loss_discriminator_target,
-            },
-            on_step=False,
-            on_epoch=True,
-        )
-
+        log_dict.update(log_dict_)
+        
         loss_discriminator = loss_discriminator_source + loss_discriminator_target
 
         optimizer_discriminator_source.zero_grad()
@@ -371,15 +370,21 @@ class StateMapper(LitStage):
         optimizer_discriminator_source.step()
         optimizer_discriminator_target.step()
 
-        return loss
+        return loss, log_dict
 
     """
         Perform validation step. Customized behavior to log different loss compoents.
         Refer to pytorch lightning docs.
     """
 
+    def validation_step_(self, batch, batch_idx):
+        return self.loss(batch, batch_idx)
+
+
     def validation_step(self, batch, batch_idx):
-        loss = self.step(batch, batch_idx, "validation_")
+        loss, log_dict = self.validation_step_(batch, batch_idx)
+
+        log_dict = {"validation_" + k: v for k, v in log_dict.items()}
 
         return loss
 

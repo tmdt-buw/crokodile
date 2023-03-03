@@ -52,7 +52,7 @@ def generate_samples(robot, samples, trajectory_length):
 os.makedirs(data_folder, exist_ok=True)
 trajectory_length = 5
 samples_train = 10
-samples_test = 2
+samples_test = 10
 
 for robot_name, robot_config in [
     ("panda", {"name": "panda", "sim_time": 0.1, "scale": 0.1}),
