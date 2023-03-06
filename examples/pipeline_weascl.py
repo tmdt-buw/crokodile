@@ -7,9 +7,9 @@ import logging
 
 import numpy as np
 
-from mapper import Mapper
-from world_models.discriminator import DiscriminatorSource
-from world_models.transition import TransitionModel
+from stages.mapper import Mapper
+from stages.world_models.discriminator import DiscriminatorSource
+from stages.world_models.transition import TransitionModel
 
 logging.getLogger().setLevel(logging.INFO)
 
@@ -82,7 +82,7 @@ def discriminator_main():
 
 
 def state_mapper_main():
-    from mapper.mapper_state import StateMapper
+    from stages.mapper.mapper_state import StateMapper
 
     config = {
         "EnvSource": {

@@ -7,12 +7,8 @@ import wandb
 from ray.rllib.algorithms.bc import BC
 from ray.rllib.algorithms.marwil import MARWIL
 from ray.rllib.algorithms.ppo import PPO
-from ray.tune.registry import register_env
 from tqdm import tqdm
 
-from environments.environment_robot_task import EnvironmentRobotTask
-
-register_env("robot_task", lambda config: EnvironmentRobotTask(config))
 logging.getLogger().setLevel(logging.INFO)
 
 

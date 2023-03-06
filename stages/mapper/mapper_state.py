@@ -13,7 +13,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 from functools import cached_property
 
 from environments import get_env
-from stage import LitStage
+from stages.stage import LitStage
 from utils.nn import KinematicChainLoss, create_network, get_weight_matrices
 
 

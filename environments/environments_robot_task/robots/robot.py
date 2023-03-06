@@ -11,7 +11,7 @@ import pybullet_utils.bullet_client as bc
 import torch
 from gym import spaces
 
-from models.dht import DHT_Model, Rescale
+from environments.dht import DHT_Model, Rescale
 
 Joint = namedtuple(
     "Joint", ["id", "initial_position", "limits", "max_velocity", "max_torque"]

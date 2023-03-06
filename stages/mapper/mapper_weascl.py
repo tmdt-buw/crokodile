@@ -1,7 +1,6 @@
 import math
 import sys
 from copy import deepcopy
-from itertools import chain
 from pathlib import Path
 
 import numpy as np
@@ -10,8 +9,8 @@ import torch.nn as nn
 from pytorch_lightning.trainer.supporters import CombinedLoader
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
-from mapper import Mapper
-from stage import LitStage
+from stages.mapper import Mapper
+from stages.stage import LitStage
 from utils.nn import KinematicChainLoss, create_network, get_weight_matrices
 from utils.soft_dtw_cuda import SoftDTW
 from world_models.transition import TransitionModelSource, TransitionModelTarget

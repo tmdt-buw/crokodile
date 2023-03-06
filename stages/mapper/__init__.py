@@ -1,6 +1,6 @@
 import logging
 
-from stage import Stage
+from stages.stage import Stage
 
 
 class Mapper(Stage):
